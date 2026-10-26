@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import type { OverlayConfig, TemplateId, MetricType, TrackStats } from '../types';
-import { TEMPLATE_PRESETS, SAMPLE_PHOTOS } from '../utils/sampleData';
+import type { OverlayConfig, TemplateId, MetricType, TrackStats, MovableElementId, OverlayPositions } from '../types';
+import { TEMPLATE_PRESETS, SAMPLE_PHOTOS, DEFAULT_POSITIONS_BY_TEMPLATE } from '../utils/sampleData';
 import {
   LayoutTemplate,
   Sliders,
@@ -12,7 +12,10 @@ import {
   Mountain,
   Compass,
   Check,
-  Type
+  Type,
+  Move,
+  RotateCcw,
+  AlignCenter
 } from 'lucide-react';
 
 interface ControlsPanelProps {
@@ -22,7 +25,7 @@ interface ControlsPanelProps {
   onSelectSamplePhoto: (url: string) => void;
 }
 
-type TabType = 'templates' | 'photo' | 'route' | 'metrics' | 'style';
+type TabType = 'templates' | 'position' | 'photo' | 'route' | 'metrics' | 'style';
 
 export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   config,
@@ -31,12 +34,14 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   onSelectSamplePhoto,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('templates');
+  const [selectedElementToMove, setSelectedElementToMove] = useState<MovableElementId>('title');
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'templates', label: 'Plantillas', icon: <LayoutTemplate className="w-4 h-4" /> },
+    { id: 'position', label: 'Posición & Tamaño', icon: <Move className="w-4 h-4" /> },
     { id: 'photo', label: 'Foto', icon: <Sliders className="w-4 h-4" /> },
     { id: 'route', label: 'Ruta & Perfil', icon: <MapPin className="w-4 h-4" /> },
-    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'metrics', label: 'Métricas & Texto', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'style', label: 'Estilo', icon: <Palette className="w-4 h-4" /> },
   ];
 
@@ -61,6 +66,27 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     }
   };
 
+  const handleUpdateElementPosition = (
+    elementId: MovableElementId,
+    partial: { x?: number; y?: number; scale?: number }
+  ) => {
+    const current = config.positions[elementId] || { x: 50, y: 50, scale: 1.0 };
+    onUpdateConfig({
+      positions: {
+        ...config.positions,
+        [elementId]: {
+          ...current,
+          ...partial,
+        },
+      },
+    });
+  };
+
+  const handleResetPositions = () => {
+    const defaults: OverlayPositions = DEFAULT_POSITIONS_BY_TEMPLATE[config.template] || DEFAULT_POSITIONS_BY_TEMPLATE.sport;
+    onUpdateConfig({ positions: defaults });
+  };
+
   const colorPalette = [
     { name: 'Naranja Strava', hex: '#FF5500' },
     { name: 'Cyan Eléctrico', hex: '#00F0FF' },
@@ -70,6 +96,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     { name: 'Rosa Neón', hex: '#EC4899' },
     { name: 'Ámbar Cálido', hex: '#F59E0B' },
   ];
+
+  const currentElementPos = config.positions[selectedElementToMove] || { x: 50, y: 50, scale: 1.0 };
 
   return (
     <div className="flex flex-col w-full h-full bg-slate-900/70 backdrop-blur-xl border-l border-slate-800/80 overflow-hidden">
@@ -218,7 +246,121 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 2: FOTO & FILTROS */}
+        {/* TAB 2: POSICIÓN & TAMAÑO MANUAL */}
+        {activeTab === 'position' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-100">Colocación Manual</h3>
+                <p className="text-xs text-slate-400">
+                  Mueve y ajusta el tamaño de cualquier elemento donde prefieras.
+                </p>
+              </div>
+              <button
+                onClick={handleResetPositions}
+                title="Restablecer posiciones"
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+              >
+                <RotateCcw className="w-4 h-4 text-orange-400" />
+              </button>
+            </div>
+
+            {/* Element Picker */}
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">
+                Selecciona elemento a mover:
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'title', label: 'Título y Fecha' },
+                  { id: 'track', label: 'Trazado del Track' },
+                  { id: 'stats', label: 'Tarjeta de Datos' },
+                  { id: 'profile', label: 'Perfil Altimetría' },
+                ].map((elem) => (
+                  <button
+                    key={elem.id}
+                    onClick={() => setSelectedElementToMove(elem.id as MovableElementId)}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold border text-center transition ${
+                      selectedElementToMove === elem.id
+                        ? 'border-orange-500 bg-orange-500/15 text-orange-400'
+                        : 'border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    {elem.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fine Position Sliders */}
+            <div className="bg-slate-950/50 p-3.5 rounded-2xl border border-slate-800 space-y-3.5">
+              {/* Horizontal Position X */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-300 font-medium">Posición Horizontal (X)</span>
+                  <span className="text-orange-400 font-mono font-bold">{currentElementPos.x}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="95"
+                  value={currentElementPos.x}
+                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { x: Number(e.target.value) })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              {/* Vertical Position Y */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-300 font-medium">Posición Vertical (Y)</span>
+                  <span className="text-orange-400 font-mono font-bold">{currentElementPos.y}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="95"
+                  value={currentElementPos.y}
+                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { y: Number(e.target.value) })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              {/* Scale / Size */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-300 font-medium">Tamaño / Escala</span>
+                  <span className="text-orange-400 font-mono font-bold">{Math.round((currentElementPos.scale || 1.0) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="60"
+                  max="220"
+                  value={Math.round((currentElementPos.scale || 1.0) * 100)}
+                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { scale: Number(e.target.value) / 100 })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              {/* Quick Center Button */}
+              <div className="pt-1 flex gap-2">
+                <button
+                  onClick={() => handleUpdateElementPosition(selectedElementToMove, { x: 50 })}
+                  className="flex-1 py-1.5 px-3 rounded-lg bg-slate-850 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5"
+                >
+                  <AlignCenter className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Centrar Horizontalmente</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 italic">
+              💡 También puedes arrastrar directamente con el ratón o el dedo sobre la imagen de vista previa.
+            </p>
+          </div>
+        )}
+
+        {/* TAB 3: FOTO & FILTROS */}
         {activeTab === 'photo' && (
           <div className="space-y-4">
             <div>
@@ -330,7 +472,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 3: RUTA & PERFIL */}
+        {/* TAB 4: RUTA & PERFIL */}
         {activeTab === 'route' && (
           <div className="space-y-4">
             <div>
@@ -396,9 +538,24 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                 <input
                   type="range"
                   min="2"
-                  max="10"
+                  max="12"
                   value={config.trackWidth}
                   onChange={(e) => onUpdateConfig({ trackWidth: Number(e.target.value) })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-300 font-medium">Tamaño del Trazado</span>
+                  <span className="text-slate-400">{Math.round((config.trackScale || 1.2) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="60"
+                  max="220"
+                  value={Math.round((config.trackScale || 1.2) * 100)}
+                  onChange={(e) => onUpdateConfig({ trackScale: Number(e.target.value) / 100 })}
                   className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
@@ -454,8 +611,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                     </div>
                     <input
                       type="range"
-                      min="30"
-                      max="90"
+                      min="40"
+                      max="120"
                       value={config.profileHeight}
                       onChange={(e) => onUpdateConfig({ profileHeight: Number(e.target.value) })}
                       className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
@@ -467,14 +624,47 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 4: MÉTRICAS & TEXTO */}
+        {/* TAB 5: MÉTRICAS & TEXTO */}
         {activeTab === 'metrics' && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-100 mb-1">Textos y Datos Visibles</h3>
+              <h3 className="text-sm font-bold text-slate-100 mb-1">Textos y Métricas</h3>
               <p className="text-xs text-slate-400">
-                Personaliza el título, subtítulo de la ruta y elige las métricas a sobreimpresionar.
+                Personaliza el título, subtítulo y aumenta el tamaño de la letra para máxima visibilidad.
               </p>
+            </div>
+
+            {/* Typography Scaler Sliders */}
+            <div className="bg-slate-950/50 p-3.5 rounded-2xl border border-slate-800 space-y-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-200 font-bold">Tamaño del Título y Subtítulo</span>
+                  <span className="text-orange-400 font-mono font-bold">{Math.round((config.titleScale || 1.25) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="80"
+                  max="220"
+                  value={Math.round((config.titleScale || 1.25) * 100)}
+                  onChange={(e) => onUpdateConfig({ titleScale: Number(e.target.value) / 100 })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-200 font-bold">Tamaño de los Datos y Cifras</span>
+                  <span className="text-orange-400 font-mono font-bold">{Math.round((config.statsScale || 1.25) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="80"
+                  max="220"
+                  value={Math.round((config.statsScale || 1.25) * 100)}
+                  onChange={(e) => onUpdateConfig({ statsScale: Number(e.target.value) / 100 })}
+                  className="w-full accent-orange-500 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
             </div>
 
             {/* Title & Subtitle Inputs */}
@@ -576,7 +766,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 5: ESTILO & TIPOGRAFÍA */}
+        {/* TAB 6: ESTILO & TIPOGRAFÍA */}
         {activeTab === 'style' && (
           <div className="space-y-4">
             <div>

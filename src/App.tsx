@@ -157,6 +157,7 @@ export default function App() {
             track={track}
             config={config}
             onChangeAspectRatio={handleChangeAspectRatio}
+            onUpdatePositions={(positions) => handleUpdateConfig({ positions })}
           />
         </section>
 
