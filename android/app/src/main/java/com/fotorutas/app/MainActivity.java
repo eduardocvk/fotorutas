@@ -1,18 +1,28 @@
 package com.fotorutas.app;
 
+import android.app.Dialog;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
 
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
@@ -22,11 +32,22 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class MainActivity extends BridgeActivity {
+
+    private WebView mainWebView = null;
+    private static String pendingTrackJson = null;
+    private Dialog garminDialog = null;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -43,18 +64,307 @@ public class MainActivity extends BridgeActivity {
             });
         }
 
-        // Add Native Gallery & Share Bridge to WebView
+        // Add Native Gallery, Track & Garmin Bridge to WebView
         View webViewCandidate = findViewById(com.getcapacitor.android.R.id.webview);
         if (webViewCandidate instanceof WebView) {
-            ((WebView) webViewCandidate).addJavascriptInterface(new GalleryBridge(this), "AndroidGallery");
+            mainWebView = (WebView) webViewCandidate;
+            mainWebView.addJavascriptInterface(new GalleryBridge(this), "AndroidGallery");
+        }
+
+        // Handle incoming intent if app was opened with a .gpx or .fit file
+        handleIncomingIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingIntent(intent);
+    }
+
+    private void handleIncomingIntent(Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        Uri uri = null;
+        if (Intent.ACTION_VIEW.equals(action)) {
+            uri = intent.getData();
+        } else if (Intent.ACTION_SEND.equals(action)) {
+            uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        }
+
+        if (uri != null) {
+            readAndDispatchTrackUri(uri);
         }
     }
 
+    private void readAndDispatchTrackUri(Uri uri) {
+        new Thread(() -> {
+            try {
+                String fileName = "track.gpx";
+                try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                        if (nameIndex >= 0) {
+                            String name = cursor.getString(nameIndex);
+                            if (name != null && !name.isEmpty()) {
+                                fileName = name;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+
+                if ("track.gpx".equals(fileName) && uri.getLastPathSegment() != null) {
+                    fileName = uri.getLastPathSegment();
+                }
+
+                try (InputStream in = getContentResolver().openInputStream(uri);
+                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    if (in == null) return;
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                    byte[] data = out.toByteArray();
+                    String base64 = Base64.encodeToString(data, Base64.NO_WRAP);
+                    dispatchTrackData(base64, fileName);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    public void dispatchTrackData(String base64, String fileName) {
+        JSONObject obj = new JSONObject();
+        try {
+            obj.put("base64", base64);
+            obj.put("fileName", fileName);
+            pendingTrackJson = obj.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        runOnUiThread(() -> {
+            if (mainWebView != null && pendingTrackJson != null) {
+                String safeJson = JSONObject.quote(pendingTrackJson);
+                mainWebView.evaluateJavascript("if (window.handleNativeTrackImport) { window.handleNativeTrackImport(" + safeJson + "); }", null);
+            }
+        });
+    }
+
+    public void startGarminActivityImport(final String activityId) {
+        // Step 1: Check if we have cookies for connect.garmin.com in CookieManager to fetch directly
+        String cookie = CookieManager.getInstance().getCookie("https://connect.garmin.com");
+
+        new Thread(() -> {
+            boolean success = false;
+            if (cookie != null && (cookie.contains("SESSION") || cookie.contains("GARMIN") || cookie.contains("token"))) {
+                success = tryDirectGarminDownload(activityId, cookie);
+            }
+
+            if (!success) {
+                // Step 2: Open in-app dialog with embedded WebView so the user can authenticate once
+                runOnUiThread(() -> showGarminLoginDialog(activityId));
+            }
+        }).start();
+    }
+
+    private boolean tryDirectGarminDownload(String activityId, String cookie) {
+        try {
+            String urlStr = "https://connect.garmin.com/download-service/export/gpx/activity/" + activityId;
+            URL url = new URL(urlStr);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+            conn.setRequestProperty("Accept", "application/gpx+xml,application/xml,text/xml,*/*");
+            conn.setRequestProperty("DI-Backend", "connectapi.garmin.com");
+            if (cookie != null) {
+                conn.setRequestProperty("Cookie", cookie);
+            }
+            conn.setInstanceFollowRedirects(true);
+            conn.connect();
+
+            int code = conn.getResponseCode();
+            if (code == 200) {
+                try (InputStream in = conn.getInputStream();
+                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                    byte[] data = out.toByteArray();
+                    String text = new String(data, "UTF-8");
+                    if (text.contains("<gpx") || text.contains("<?xml")) {
+                        String base64 = Base64.encodeToString(data, Base64.NO_WRAP);
+                        dispatchTrackData(base64, "garmin_" + activityId + ".gpx");
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    private void showGarminLoginDialog(final String activityId) {
+        if (isFinishing() || isDestroyed()) return;
+        if (garminDialog != null && garminDialog.isShowing()) {
+            garminDialog.dismiss();
+        }
+
+        garminDialog = new Dialog(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xFF0F172A);
+
+        // Top bar
+        RelativeLayout topBar = new RelativeLayout(this);
+        topBar.setPadding(32, 28, 32, 20);
+        topBar.setBackgroundColor(0xFF1E293B);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Conectar con Garmin Connect");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(16);
+        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        RelativeLayout.LayoutParams titleLp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT
+        );
+        titleLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+        titleLp.addRule(RelativeLayout.CENTER_VERTICAL);
+        topBar.addView(titleView, titleLp);
+
+        Button closeBtn = new Button(this);
+        closeBtn.setText("✕ Cerrar");
+        closeBtn.setTextColor(0xFF94A3B8);
+        closeBtn.setBackgroundColor(0x00000000);
+        RelativeLayout.LayoutParams closeLp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT
+        );
+        closeLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+        closeLp.addRule(RelativeLayout.CENTER_VERTICAL);
+        closeBtn.setOnClickListener(v -> garminDialog.dismiss());
+        topBar.addView(closeBtn, closeLp);
+
+        root.addView(topBar);
+
+        // Instruction Banner
+        TextView banner = new TextView(this);
+        banner.setText("Inicia sesión en tu cuenta de Garmin. Al entrar, tu ruta se importará automáticamente en Fotorutas.");
+        banner.setTextColor(0xFFF0FDF4);
+        banner.setTextSize(12);
+        banner.setPadding(32, 20, 32, 20);
+        banner.setBackgroundColor(0xFF0284C7);
+        root.addView(banner);
+
+        // Embedded WebView
+        WebView webView = new WebView(this);
+        webView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+        ));
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
+        webView.setWebViewClient(new WebViewClient() {
+            private boolean captured = false;
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (captured) return;
+
+                String currentCookies = CookieManager.getInstance().getCookie("https://connect.garmin.com");
+
+                // If loaded activity or modern portal with cookies, try direct download
+                if (url.contains("/activity/") || url.contains("/modern/") || url.contains("signin")) {
+                    new Thread(() -> {
+                        boolean ok = tryDirectGarminDownload(activityId, currentCookies);
+                        if (ok) {
+                            captured = true;
+                            runOnUiThread(() -> {
+                                if (garminDialog != null && garminDialog.isShowing()) {
+                                    garminDialog.dismiss();
+                                }
+                            });
+                        }
+                    }).start();
+                }
+            }
+        });
+
+        // Intercept any downloads triggered inside the WebView
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            new Thread(() -> {
+                String cookies = CookieManager.getInstance().getCookie(url);
+                try {
+                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                    if (cookies != null) {
+                        conn.setRequestProperty("Cookie", cookies);
+                    }
+                    conn.setRequestProperty("User-Agent", userAgent);
+                    conn.connect();
+                    if (conn.getResponseCode() == 200) {
+                        try (InputStream in = conn.getInputStream();
+                             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                            byte[] buf = new byte[8192];
+                            int r;
+                            while ((r = in.read(buf)) != -1) {
+                                out.write(buf, 0, r);
+                            }
+                            byte[] bytes = out.toByteArray();
+                            dispatchTrackData(Base64.encodeToString(bytes, Base64.NO_WRAP), "garmin_" + activityId + ".gpx");
+                            runOnUiThread(() -> {
+                                if (garminDialog != null && garminDialog.isShowing()) {
+                                    garminDialog.dismiss();
+                                }
+                            });
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }).start();
+        });
+
+        String targetUrl = "https://connect.garmin.com/signin/?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2Factivity%2F" + activityId;
+        webView.loadUrl(targetUrl);
+
+        root.addView(webView);
+        garminDialog.setContentView(root);
+        garminDialog.show();
+    }
+
     public static class GalleryBridge {
+        private final MainActivity activity;
         private final Context context;
 
-        public GalleryBridge(Context context) {
-            this.context = context;
+        public GalleryBridge(MainActivity activity) {
+            this.activity = activity;
+            this.context = activity;
+        }
+
+        @JavascriptInterface
+        public String getPendingTrack() {
+            String pending = pendingTrackJson;
+            pendingTrackJson = null;
+            return pending;
+        }
+
+        @JavascriptInterface
+        public void importGarminActivity(final String activityId) {
+            activity.runOnUiThread(() -> activity.startGarminActivityImport(activityId));
         }
 
         @JavascriptInterface

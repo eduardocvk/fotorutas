@@ -59,10 +59,99 @@ export default function App() {
     });
   };
 
-  // Initialize with sample photo
+  // Initialize with sample photo and listen for native incoming tracks
   useEffect(() => {
     loadPhotoFromUrl(SAMPLE_PHOTOS[0].url);
+
+    // 1. Check for pending track from Android Intent or Garmin import
+    const checkPendingTrack = () => {
+      const bridge = (window as any).AndroidGallery;
+      if (bridge && typeof bridge.getPendingTrack === 'function') {
+        const json = bridge.getPendingTrack();
+        if (json) {
+          try {
+            const data = typeof json === 'string' ? JSON.parse(json) : json;
+            if (data && data.base64 && data.fileName) {
+              loadTrackFromBase64(data.base64, data.fileName);
+            }
+          } catch (e) {
+            console.error('Error parsing pending track:', e);
+          }
+        }
+      }
+    };
+
+    checkPendingTrack();
+    const timer = setTimeout(checkPendingTrack, 1200);
+
+    // 2. Register native track import callback from Android
+    (window as any).handleNativeTrackImport = (payload: any) => {
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        if (data && data.base64 && data.fileName) {
+          loadTrackFromBase64(data.base64, data.fileName);
+        }
+      } catch (e) {
+        console.error('Error in handleNativeTrackImport:', e);
+      }
+    };
+
+    return () => {
+      clearTimeout(timer);
+      delete (window as any).handleNativeTrackImport;
+    };
   }, []);
+
+  const loadTrackFromBase64 = async (base64: string, fileName: string) => {
+    try {
+      const binaryString = window.atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const lowerName = fileName.toLowerCase();
+      if (lowerName.endsWith('.gpx') || lowerName.includes('gpx')) {
+        const text = new TextDecoder('utf-8').decode(bytes);
+        const parsed = parseGPX(text, fileName);
+        setTrack(parsed);
+        setConfig((prev) => ({
+          ...prev,
+          title: parsed.title || prev.title,
+          dateText: parsed.date || prev.dateText,
+        }));
+        showToast('success', `Ruta importada: ${parsed.distanceKm} km · +${parsed.elevationGainM}m D+`);
+        setIsGarminModalOpen(false);
+      } else if (lowerName.endsWith('.fit') || lowerName.includes('fit')) {
+        const parsed = await parseFIT(bytes.buffer, fileName);
+        setTrack(parsed);
+        setConfig((prev) => ({
+          ...prev,
+          title: parsed.title || prev.title,
+          dateText: parsed.date || prev.dateText,
+        }));
+        showToast('success', `Ruta FIT importada: ${parsed.distanceKm} km · +${parsed.elevationGainM}m D+`);
+        setIsGarminModalOpen(false);
+      } else {
+        const text = new TextDecoder('utf-8').decode(bytes);
+        if (text.includes('<gpx') || text.includes('<?xml')) {
+          const parsed = parseGPX(text, fileName);
+          setTrack(parsed);
+          setConfig((prev) => ({
+            ...prev,
+            title: parsed.title || prev.title,
+            dateText: parsed.date || prev.dateText,
+          }));
+          showToast('success', `Ruta GPX importada: ${parsed.distanceKm} km · +${parsed.elevationGainM}m D+`);
+          setIsGarminModalOpen(false);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error loading native track:', err);
+      showToast('error', 'Error al procesar la ruta: ' + (err.message || 'formato no válido'));
+    }
+  };
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
