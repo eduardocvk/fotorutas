@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fotorutas</string>
+    <string name="title_activity_main">Fotorutas</string>
+    <string name="package_name">com.fotorutas.app</string>
+    <string name="custom_url_scheme">com.fotorutas.app</string>
+</resources>
