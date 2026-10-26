@@ -112,21 +112,21 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   return (
     <div className="flex flex-col w-full h-full bg-white dark:bg-slate-900/80 backdrop-blur-xl border-l border-slate-200 dark:border-slate-800/80 overflow-hidden text-slate-800 dark:text-slate-100 transition-colors duration-200">
       {/* Tab Navigation - Grid 6 columns: all visible without horizontal scrolling */}
-      <div className="grid grid-cols-6 gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0">
+      <div className="grid grid-cols-6 gap-0.5 sm:gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0 select-none">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1 px-1 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
+              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[9.5px] sm:text-xs font-bold transition-all ${
                 isActive
                   ? 'bg-orange-500 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
               }`}
             >
               <span className="shrink-0">{tab.icon}</span>
-              <span className="truncate">{tab.label}</span>
+              <span className="truncate w-full text-center leading-tight">{tab.label}</span>
             </button>
           );
         })}

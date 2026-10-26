@@ -15,8 +15,8 @@ import {
   BarChart3, 
   MapPin, 
   Sliders, 
-  ChevronUp, 
-  ChevronDown
+  ChevronDown,
+  Palette
 } from 'lucide-react';
 
 export default function App() {
@@ -202,38 +202,75 @@ export default function App() {
   };
 
   const [sheetDragY, setSheetDragY] = useState(0);
-  const touchStartY = useRef<number | null>(null);
-  const isDraggingSheet = useRef(false);
+  const [isDraggingSheet, setIsDraggingSheet] = useState(false);
+  const dragStartY = useRef<number | null>(null);
+  const currentDragDelta = useRef<number>(0);
 
-  const handleSheetTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    touchStartY.current = clientY;
-    isDraggingSheet.current = true;
+  const handleSheetPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary) return;
+    dragStartY.current = e.clientY;
+    currentDragDelta.current = 0;
+    setIsDraggingSheet(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const handleSheetTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
-    if (!isDraggingSheet.current || touchStartY.current === null) return;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const delta = clientY - touchStartY.current;
-    if (delta > 0) {
-      setSheetDragY(delta);
+  const handleSheetPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStartY.current === null) return;
+    const deltaY = e.clientY - dragStartY.current;
+    if (deltaY > 0) {
+      currentDragDelta.current = deltaY;
+      setSheetDragY(deltaY);
+    } else {
+      // Resistance when pulling up
+      currentDragDelta.current = deltaY * 0.2;
+      setSheetDragY(deltaY * 0.2);
     }
   };
 
-  const handleSheetTouchEnd = () => {
-    if (!isDraggingSheet.current) return;
-    isDraggingSheet.current = false;
-    touchStartY.current = null;
-    if (sheetDragY > 60) {
+  const handleSheetPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStartY.current === null) return;
+    const delta = currentDragDelta.current;
+    dragStartY.current = null;
+    currentDragDelta.current = 0;
+    setIsDraggingSheet(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    // If dragged downward by more than 40px, dismiss sheet
+    if (delta > 40) {
       setIsMobileSheetOpen(false);
     }
     setSheetDragY(0);
   };
 
-  const handleSelectMobileTab = (tab: TabType) => {
-    setMobileActiveTab(tab);
-    setIsMobileSheetOpen(true);
+  const handleSheetPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStartY.current = null;
+    currentDragDelta.current = 0;
+    setIsDraggingSheet(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    setSheetDragY(0);
   };
+
+  const handleSelectMobileTab = (tab: TabType) => {
+    if (isMobileSheetOpen && mobileActiveTab === tab) {
+      setIsMobileSheetOpen(false);
+    } else {
+      setMobileActiveTab(tab);
+      setIsMobileSheetOpen(true);
+    }
+  };
+
+  const mobileNavTabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+    { id: 'templates', label: 'Plantillas', icon: <LayoutTemplate className="w-4 h-4" /> },
+    { id: 'position', label: 'Posición', icon: <Move className="w-4 h-4" /> },
+    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'route', label: 'Ruta', icon: <MapPin className="w-4 h-4" /> },
+    { id: 'photo', label: 'Filtros', icon: <Sliders className="w-4 h-4" /> },
+    { id: 'style', label: 'Estilo', icon: <Palette className="w-4 h-4" /> },
+  ];
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 selection:bg-orange-500 selection:text-white transition-colors duration-200">
@@ -279,23 +316,29 @@ export default function App() {
             <div 
               style={{
                 transform: `translateY(${sheetDragY}px)`,
-                transition: isDraggingSheet.current ? 'none' : 'transform 0.22s ease-out',
+                transition: isDraggingSheet ? 'none' : 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
               }}
-              className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl max-h-[52vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200"
+              className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl max-h-[54vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200"
             >
-              {/* Sheet Handle with Swipe Down support */}
+              {/* Sheet Drag Handle Bar with smooth pointer drag down */}
               <div 
-                onTouchStart={handleSheetTouchStart}
-                onTouchMove={handleSheetTouchMove}
-                onTouchEnd={handleSheetTouchEnd}
-                onMouseDown={handleSheetTouchStart}
-                onMouseMove={handleSheetTouchMove}
-                onMouseUp={handleSheetTouchEnd}
-                onClick={() => setIsMobileSheetOpen(false)}
-                className="w-full py-2.5 flex flex-col items-center justify-center cursor-pointer border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40 select-none active:bg-slate-100 dark:active:bg-slate-800"
+                onPointerDown={handleSheetPointerDown}
+                onPointerMove={handleSheetPointerMove}
+                onPointerUp={handleSheetPointerUp}
+                onPointerCancel={handleSheetPointerCancel}
+                onClick={() => {
+                  if (Math.abs(currentDragDelta.current) < 5) {
+                    setIsMobileSheetOpen(false);
+                  }
+                }}
+                style={{ touchAction: 'none' }}
+                className="w-full py-2.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40 select-none touch-none hover:bg-slate-100 dark:hover:bg-slate-800/40 active:bg-slate-100 dark:active:bg-slate-800 transition-colors"
               >
-                <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 mb-1" />
-                <span className="text-[10px] text-slate-400 font-medium">Desliza hacia abajo para ocultar</span>
+                <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 mb-1" />
+                <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                  <span>Desliza hacia abajo o toca para ocultar</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </div>
               </div>
 
               {/* Controls inside sheet */}
@@ -313,85 +356,27 @@ export default function App() {
           )}
 
           {/* Bottom Navigation Bar - Elevated with safe area to never collide with Android system buttons */}
-          <nav className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-2 pt-2 pb-7 sm:pb-3 pb-android-safe flex items-center justify-around shadow-2xl">
-            <button
-              onClick={() => handleSelectMobileTab('templates')}
-              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${
-                isMobileSheetOpen && mobileActiveTab === 'templates'
-                  ? 'text-orange-500 bg-orange-500/10'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <LayoutTemplate className="w-4 h-4" />
-              <span>Plantillas</span>
-            </button>
-
-            <button
-              onClick={() => handleSelectMobileTab('position')}
-              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${
-                isMobileSheetOpen && mobileActiveTab === 'position'
-                  ? 'text-orange-500 bg-orange-500/10'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <Move className="w-4 h-4" />
-              <span>Posición</span>
-            </button>
-
-            <button
-              onClick={() => handleSelectMobileTab('metrics')}
-              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${
-                isMobileSheetOpen && mobileActiveTab === 'metrics'
-                  ? 'text-orange-500 bg-orange-500/10'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Métricas</span>
-            </button>
-
-            <button
-              onClick={() => handleSelectMobileTab('route')}
-              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${
-                isMobileSheetOpen && mobileActiveTab === 'route'
-                  ? 'text-orange-500 bg-orange-500/10'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Ruta</span>
-            </button>
-
-            <button
-              onClick={() => handleSelectMobileTab('photo')}
-              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${
-                isMobileSheetOpen && mobileActiveTab === 'photo'
-                  ? 'text-orange-500 bg-orange-500/10'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <Sliders className="w-4 h-4" />
-              <span>Filtros</span>
-            </button>
-
-            {/* Toggle Sheet Button */}
-            <button
-              onClick={() => setIsMobileSheetOpen(!isMobileSheetOpen)}
-              className="flex flex-col items-center gap-1 py-1 px-2 rounded-xl text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
-              title={isMobileSheetOpen ? 'Ocultar panel' : 'Ver opciones'}
-            >
-              {isMobileSheetOpen ? (
-                <>
-                  <ChevronDown className="w-4 h-4" />
-                  <span>Ocultar</span>
-                </>
-              ) : (
-                <>
-                  <ChevronUp className="w-4 h-4" />
-                  <span>Editar</span>
-                </>
-              )}
-            </button>
+          <nav 
+            style={{ paddingBottom: 'max(0.75rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))' }}
+            className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-1 pt-1.5 grid grid-cols-6 gap-0.5 shadow-2xl select-none"
+          >
+            {mobileNavTabs.map((tab) => {
+              const isActive = isMobileSheetOpen && mobileActiveTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleSelectMobileTab(tab.id)}
+                  className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[9.5px] sm:text-[10px] font-bold transition-all ${
+                    isActive
+                      ? 'text-orange-500 bg-orange-500/10'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span className="shrink-0">{tab.icon}</span>
+                  <span className="truncate w-full text-center leading-tight">{tab.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
       </main>
