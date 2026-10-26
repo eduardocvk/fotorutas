@@ -206,6 +206,8 @@ export const DEFAULT_CONFIG: OverlayConfig = {
   photoContrast: 15,
   photoBlur: 0,
   photoVignette: true,
+  photoOffsetX: 0,
+  photoOffsetY: 0,
 };
 
 // Generate realistic mountain climb route (Lagos de Covadonga)

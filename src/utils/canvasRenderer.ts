@@ -392,17 +392,25 @@ export function renderComposition({
       ctx.filter = filters.join(' ');
     }
 
-    // Cover crop
+    // Cover crop with pan offset support
     const imgRatio = image.naturalWidth / image.naturalHeight;
     const canvasRatio = width / height;
 
     let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
     if (imgRatio > canvasRatio) {
       sw = image.naturalHeight * canvasRatio;
-      sx = (image.naturalWidth - sw) / 2;
+      const maxPanX = image.naturalWidth - sw;
+      // Normal center is maxPanX / 2. Offset ranges from -100 (left) to +100 (right)
+      const offsetFactorX = Math.max(-1, Math.min(1, (config.photoOffsetX ?? 0) / 100));
+      sx = (maxPanX / 2) + (offsetFactorX * (maxPanX / 2));
+      sx = Math.max(0, Math.min(maxPanX, sx));
     } else {
       sh = image.naturalWidth / canvasRatio;
-      sy = (image.naturalHeight - sh) / 2;
+      const maxPanY = image.naturalHeight - sh;
+      // Normal center is maxPanY / 2. Offset ranges from -100 (top) to +100 (bottom)
+      const offsetFactorY = Math.max(-1, Math.min(1, (config.photoOffsetY ?? 0) / 100));
+      sy = (maxPanY / 2) + (offsetFactorY * (maxPanY / 2));
+      sy = Math.max(0, Math.min(maxPanY, sy));
     }
 
     ctx.drawImage(image, sx, sy, sw, sh, 0, 0, width, height);
@@ -492,11 +500,11 @@ function renderCustomizableComposition(
 
     ctx.textAlign = 'center';
 
-    // Date
+    // Date (comfortably above title to prevent any overlap)
     if (config.showDate && config.dateText) {
       ctx.font = `700 ${18 * tScale * scale}px ${fontFam}`;
       ctx.fillStyle = config.themeColor;
-      ctx.fillText(config.dateText.toUpperCase(), titleX, titleY - 32 * tScale * scale);
+      ctx.fillText(config.dateText.toUpperCase(), titleX, titleY - 56 * tScale * scale);
     }
 
     // Main Title (MUCH LARGER: 48px scaled base)
@@ -506,12 +514,12 @@ function renderCustomizableComposition(
     ctx.shadowBlur = 14 * scale;
     ctx.fillText(config.title, titleX, titleY);
 
-    // Subtitle
+    // Subtitle (comfortably below title)
     if (config.subtitle) {
       ctx.shadowBlur = 0;
       ctx.font = `600 ${22 * tScale * scale}px ${fontFam}`;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
-      ctx.fillText(config.subtitle, titleX, titleY + 30 * tScale * scale);
+      ctx.fillText(config.subtitle, titleX, titleY + 40 * tScale * scale);
     }
     ctx.restore();
   }
@@ -535,13 +543,15 @@ function renderCustomizableComposition(
     const cardY = (pos.stats.y / 100) * height - cardH / 2;
 
     ctx.save();
-    const cardAlpha = (config.cardOpacity / 100).toFixed(2);
-    drawRoundRect(ctx, cardX, cardY, cardW, cardH, 24 * scale);
-    ctx.fillStyle = `rgba(15, 23, 42, ${cardAlpha})`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(255, 255, 255, 0.18)`;
-    ctx.lineWidth = 1.5 * scale;
-    ctx.stroke();
+    if (config.cardOpacity > 0) {
+      const cardAlpha = (config.cardOpacity / 100).toFixed(2);
+      drawRoundRect(ctx, cardX, cardY, cardW, cardH, 24 * scale);
+      ctx.fillStyle = `rgba(15, 23, 42, ${cardAlpha})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 255, 255, ${Math.min(0.25, (config.cardOpacity / 100) * 0.3)})`;
+      ctx.lineWidth = 1.5 * scale;
+      ctx.stroke();
+    }
 
     const metricItems = getSelectedMetricItems(track, config.metrics);
     const count = Math.min(metricItems.length, 4);
@@ -581,15 +591,17 @@ function renderCustomizableComposition(
     const profX = (pos.profile.x / 100) * width - profW / 2;
     const profY = (pos.profile.y / 100) * height - profH / 2;
 
-    ctx.save();
-    // Glass backdrop for profile
-    drawRoundRect(ctx, profX - 10 * scale, profY - 10 * scale, profW + 20 * scale, profH + 20 * scale, 18 * scale);
-    ctx.fillStyle = `rgba(10, 15, 28, ${(config.cardOpacity / 100 * 0.8).toFixed(2)})`;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 1 * scale;
-    ctx.stroke();
-    ctx.restore();
+    if (config.cardOpacity > 0) {
+      ctx.save();
+      // Glass backdrop for profile
+      drawRoundRect(ctx, profX - 10 * scale, profY - 10 * scale, profW + 20 * scale, profH + 20 * scale, 18 * scale);
+      ctx.fillStyle = `rgba(10, 15, 28, ${(config.cardOpacity / 100 * 0.8).toFixed(2)})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 255, 255, ${Math.min(0.2, (config.cardOpacity / 100) * 0.25)})`;
+      ctx.lineWidth = 1 * scale;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     drawElevationProfile(ctx, track, profX, profY, profW, profH, config, scale);
   }

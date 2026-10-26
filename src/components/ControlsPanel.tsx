@@ -65,8 +65,25 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   const handleApplyTemplate = (templateId: TemplateId) => {
     const preset = TEMPLATE_PRESETS[templateId];
     if (preset) {
+      // Preserve user custom content and adjustments so changing templates does not wipe their work
+      const preserved = {
+        title: config.title,
+        subtitle: config.subtitle,
+        dateText: config.dateText,
+        watermarkText: config.watermarkText,
+        aspectRatio: config.aspectRatio,
+        metrics: config.metrics,
+        photoFilter: config.photoFilter,
+        photoBrightness: config.photoBrightness,
+        photoContrast: config.photoContrast,
+        photoVignette: config.photoVignette,
+        photoOffsetX: config.photoOffsetX,
+        photoOffsetY: config.photoOffsetY,
+      };
+
       onUpdateConfig({
         ...preset,
+        ...preserved,
         template: templateId,
       });
     }
@@ -385,6 +402,62 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                   onChange={(e) => onUpdateConfig({ photoVignette: e.target.checked })}
                   className="w-4 h-4 rounded text-orange-500 accent-orange-500 cursor-pointer"
                 />
+              </div>
+            </div>
+
+            {/* Photo Crop Framing & Panning */}
+            <div className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                    Encuadre y Desplazamiento del Recorte
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                    Mueve la foto si está recortada en 9:16 o 4:5
+                  </span>
+                </div>
+                {((config.photoOffsetX || 0) !== 0 || (config.photoOffsetY || 0) !== 0) && (
+                  <button
+                    onClick={() => onUpdateConfig({ photoOffsetX: 0, photoOffsetY: 0 })}
+                    className="text-[11px] text-orange-600 dark:text-orange-400 font-bold hover:underline px-2 py-0.5 rounded-lg bg-orange-500/10"
+                  >
+                    Centrar
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-700 dark:text-slate-300 font-medium">Desplazamiento Horizontal</span>
+                  <span className="text-slate-500 dark:text-slate-400">{config.photoOffsetX || 0}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={config.photoOffsetX || 0}
+                  onChange={(e) => onUpdateConfig({ photoOffsetX: Number(e.target.value) })}
+                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-700 dark:text-slate-300 font-medium">Desplazamiento Vertical</span>
+                  <span className="text-slate-500 dark:text-slate-400">{config.photoOffsetY || 0}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={config.photoOffsetY || 0}
+                  onChange={(e) => onUpdateConfig({ photoOffsetY: Number(e.target.value) })}
+                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div className="p-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-[11px] text-orange-800 dark:text-orange-300">
+                💡 <strong>Gesto táctil:</strong> También puedes arrastrar la foto directamente sobre la pantalla con el dedo para encuadrarla libremente.
               </div>
             </div>
 
@@ -800,13 +873,18 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
 
             {/* Card Opacity */}
             <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-700 dark:text-slate-300 font-medium">Opacidad del Fondo de Datos</span>
-                <span className="text-slate-500 dark:text-slate-400">{config.cardOpacity}%</span>
+              <div className="flex justify-between items-center text-xs">
+                <div>
+                  <span className="text-slate-700 dark:text-slate-300 font-medium block">Opacidad del Fondo de Datos</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                    {config.cardOpacity === 0 ? '0% (100% transparente / flotante)' : `${config.cardOpacity}%`}
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{config.cardOpacity}%</span>
               </div>
               <input
                 type="range"
-                min="30"
+                min="0"
                 max="100"
                 value={config.cardOpacity}
                 onChange={(e) => onUpdateConfig({ cardOpacity: Number(e.target.value) })}

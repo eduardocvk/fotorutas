@@ -103,10 +103,12 @@ export interface OverlayConfig {
   // Free manual positioning
   positions: OverlayPositions;
   
-  // Photo adjustments
+  // Photo adjustments & crop pan
   photoFilter: 'none' | 'cinematic' | 'contrast' | 'vibrant' | 'blackwhite' | 'warm';
   photoBrightness: number; // -50 to 50
   photoContrast: number; // -50 to 50
   photoBlur: number; // 0 to 20
   photoVignette: boolean;
+  photoOffsetX?: number; // -100 to 100 percentage of available pan
+  photoOffsetY?: number; // -100 to 100 percentage of available pan
 }

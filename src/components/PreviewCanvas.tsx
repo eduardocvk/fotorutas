@@ -20,6 +20,7 @@ interface PreviewCanvasProps {
   config: OverlayConfig;
   onChangeAspectRatio: (ratio: AspectRatioType) => void;
   onUpdatePositions: (positions: OverlayPositions) => void;
+  onUpdateConfig: (partial: Partial<OverlayConfig>) => void;
 }
 
 export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
@@ -28,12 +29,15 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   config,
   onChangeAspectRatio,
   onUpdatePositions,
+  onUpdateConfig,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [activeElement, setActiveElement] = useState<MovableElementId | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [photoDragStart, setPhotoDragStart] = useState<{ x: number; y: number; originOffsetX: number; originOffsetY: number } | null>(null);
   const [isPinching, setIsPinching] = useState(false);
   const [pinchScaleDisplay, setPinchScaleDisplay] = useState<number | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; originX: number; originY: number } | null>(null);
@@ -103,6 +107,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       initialScaleOnPinch.current = config.positions[target]?.scale || 1.0;
       setIsPinching(true);
       setIsDragging(false);
+      setIsDraggingPhoto(false);
       return;
     }
 
@@ -115,6 +120,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
           setActiveElement(b.id);
           setIsDragging(true);
+          setIsDraggingPhoto(false);
           const currentPos = config.positions[b.id] || { x: 50, y: 50, scale: 1 };
           setDragStart({
             x: e.clientX,
@@ -129,8 +135,19 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         }
       }
 
-      // Tapped background
+      // Tapped background -> start direct photo panning
       setActiveElement(null);
+      setIsDragging(false);
+      setIsDraggingPhoto(true);
+      setPhotoDragStart({
+        x: e.clientX,
+        y: e.clientY,
+        originOffsetX: config.photoOffsetX ?? 0,
+        originOffsetY: config.photoOffsetY ?? 0,
+      });
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch (err) {}
     }
   };
 
@@ -157,7 +174,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       return;
     }
 
-    // 2. Handle Single-Finger Drag
+    // 2. Handle Single-Finger Drag for Active Element (Title, Track, Stats, Profile)
     if (isDragging && activeElement && dragStart && canvasRef.current) {
       const canvas = canvasRef.current;
       const rect = canvas.getBoundingClientRect();
@@ -176,6 +193,25 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
           y: newY,
         },
       });
+      return;
+    }
+
+    // 3. Handle Direct Photo Crop Panning
+    if (isDraggingPhoto && photoDragStart && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+
+      // Dragging left or right pans the crop
+      const deltaX = ((e.clientX - photoDragStart.x) / rect.width) * 120;
+      const deltaY = ((e.clientY - photoDragStart.y) / rect.height) * 120;
+
+      const newOffsetX = Math.max(-100, Math.min(100, Math.round(photoDragStart.originOffsetX + deltaX)));
+      const newOffsetY = Math.max(-100, Math.min(100, Math.round(photoDragStart.originOffsetY + deltaY)));
+
+      onUpdateConfig({
+        photoOffsetX: newOffsetX,
+        photoOffsetY: newOffsetY,
+      });
     }
   };
 
@@ -190,7 +226,9 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
     if (activePointers.current.size === 0) {
       setIsDragging(false);
+      setIsDraggingPhoto(false);
       setDragStart(null);
+      setPhotoDragStart(null);
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       } catch (err) {}
@@ -212,38 +250,41 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const handleResetPositions = () => {
     const defaults = DEFAULT_POSITIONS_BY_TEMPLATE[config.template] || DEFAULT_POSITIONS_BY_TEMPLATE.sport;
     onUpdatePositions(defaults);
+    onUpdateConfig({ photoOffsetX: 0, photoOffsetY: 0 });
     setActiveElement(null);
   };
 
   const activeBox = boundingBoxes.find((b) => b.id === activeElement);
 
   const ratios: { id: AspectRatioType; label: string; icon: React.ReactNode }[] = [
-    { id: '9:16', label: '9:16 Historia', icon: <Smartphone className="w-3.5 h-3.5" /> },
-    { id: '4:5', label: '4:5 Retrato', icon: <RectangleVertical className="w-3.5 h-3.5" /> },
-    { id: '1:1', label: '1:1 Cuadrado', icon: <Square className="w-3.5 h-3.5" /> },
-    { id: '16:9', label: '16:9 Paisaje', icon: <RectangleHorizontal className="w-3.5 h-3.5" /> },
+    { id: '9:16', label: '9:16', icon: <Smartphone className="w-3.5 h-3.5" /> },
+    { id: '4:5', label: '4:5', icon: <RectangleVertical className="w-3.5 h-3.5" /> },
+    { id: '1:1', label: '1:1', icon: <Square className="w-3.5 h-3.5" /> },
+    { id: '16:9', label: '16:9', icon: <RectangleHorizontal className="w-3.5 h-3.5" /> },
   ];
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full p-1 sm:p-2 select-none">
-      {/* Top Bar: Quick Aspect Ratio Chips + Reset */}
-      <div className="flex items-center justify-between w-full max-w-xl gap-2 mb-2 px-1">
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 backdrop-blur-md shadow-sm">
+    <div className="flex flex-col items-center justify-center w-full max-w-2xl mx-auto select-none">
+      {/* Quick Aspect Ratio Selector & Template Info (Above the photo) */}
+      <div className="flex items-center justify-between gap-1 w-full px-2 mb-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+            {config.template.replace('_', ' ')}
+          </span>
           {ratios.map((r) => {
-            const isActive = config.aspectRatio === r.id;
+            const isSelected = config.aspectRatio === r.id;
             return (
               <button
                 key={r.id}
                 onClick={() => onChangeAspectRatio(r.id)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  isActive
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition ${
+                  isSelected
+                    ? 'bg-orange-500 text-white shadow-md shadow-orange-500/25'
+                    : 'bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
                 }`}
               >
                 {r.icon}
-                <span className="hidden sm:inline">{r.label}</span>
-                <span className="sm:hidden">{r.id}</span>
+                <span>{r.label}</span>
               </button>
             );
           })}
@@ -251,8 +292,8 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
         <button
           onClick={handleResetPositions}
-          title="Restablecer posición de elementos a la plantilla original"
-          className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold backdrop-blur-md shadow-sm transition active:scale-95"
+          title="Restablecer posición de elementos y encuadre"
+          className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold backdrop-blur-md shadow-sm transition active:scale-95 shrink-0"
         >
           <RotateCcw className="w-3.5 h-3.5 text-orange-500" />
           <span className="hidden sm:inline">Restablecer</span>
@@ -262,7 +303,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       {/* Main Canvas Viewport with Touch Gestures */}
       <div
         ref={containerRef}
-        className="relative flex items-center justify-center max-w-full max-h-[60vh] sm:max-h-[72vh] rounded-2xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100 dark:bg-slate-950/60 touch-none"
+        className="relative flex items-center justify-center max-w-full max-h-[60vh] sm:max-h-[72vh] rounded-2xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100 dark:bg-slate-950/60 touch-none cursor-grab active:cursor-grabbing"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -294,7 +335,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
         {/* Live Pinch Zoom HUD Badge (Shows when pinching with 2 fingers) */}
         {pinchScaleDisplay !== null && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-white shadow-2xl animate-in zoom-in-75 duration-150">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-white shadow-2xl animate-in zoom-in-75 duration-150 pointer-events-none">
             <Maximize2 className="w-5 h-5 text-orange-400 animate-pulse" />
             <span className="font-extrabold text-lg tracking-wider font-mono">
               {pinchScaleDisplay}%
@@ -327,22 +368,13 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             </button>
           </div>
         )}
-
-        {/* Top-left Info Tags */}
-        <div className="absolute top-2 left-2 flex items-center gap-1.5 pointer-events-none">
-          <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-black/60 backdrop-blur-md text-white border border-white/10 uppercase tracking-wider">
-            {config.template.replace('_', ' ')}
-          </span>
-          <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded-md bg-black/60 backdrop-blur-md text-orange-400 border border-white/10">
-            {config.aspectRatio}
-          </span>
-        </div>
       </div>
 
       {/* Helpful Touch Hint */}
-      <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center mt-1.5 flex items-center justify-center gap-1">
-        <Move className="w-3 h-3 text-orange-500 inline" />
-        <span><strong>1 dedo:</strong> mover. <strong>2 dedos (pellizco):</strong> redimensionar.</span>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center mt-1.5 flex items-center justify-center gap-2">
+        <span><strong>Foto:</strong> arrastra para encuadrar.</span>
+        <span>·</span>
+        <span><strong>Textos/Ruta:</strong> 1 dedo para mover, 2 dedos para escalar.</span>
       </p>
     </div>
   );

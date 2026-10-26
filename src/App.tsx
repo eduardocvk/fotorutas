@@ -15,6 +15,7 @@ import {
   BarChart3, 
   MapPin, 
   ChevronDown,
+  ChevronUp,
   Palette
 } from 'lucide-react';
 
@@ -26,9 +27,9 @@ export default function App() {
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isGarminModalOpen, setIsGarminModalOpen] = useState(false);
 
-  // Mobile layout state
+  // Mobile layout state: sheet can be 'expanded' or 'peek' (partially visible)
   const [mobileActiveTab, setMobileActiveTab] = useState<TabType>('templates');
-  const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(true);
+  const [sheetState, setSheetState] = useState<'expanded' | 'peek'>('expanded');
 
   // Theme state: 'dark' | 'light' (immediate toggle)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -172,7 +173,9 @@ export default function App() {
       const cleanTitle = (config.title || 'fotoruta').toLowerCase().replace(/\s+/g, '-');
       const filename = `${cleanTitle}-${config.aspectRatio.replace(':', 'x')}.png`;
       const result = await exportHighResImage(image, track, config, filename);
-      if (result === 'shared') {
+      if (result === 'gallery') {
+        showToast('success', '¡Imagen guardada en tu Galería de fotos (álbum Fotorutas)!');
+      } else if (result === 'shared') {
         showToast('success', '¡Imagen compartida con éxito!');
       } else if (result === 'downloaded') {
         showToast('success', '¡Imagen en alta resolución descargada!');
@@ -200,13 +203,20 @@ export default function App() {
   const handleSheetPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragStartY.current === null) return;
     const deltaY = e.clientY - dragStartY.current;
-    if (deltaY > 0) {
-      currentDragDelta.current = deltaY;
-      setSheetDragY(deltaY);
+    currentDragDelta.current = deltaY;
+    if (sheetState === 'expanded') {
+      if (deltaY > 0) {
+        setSheetDragY(deltaY);
+      } else {
+        setSheetDragY(deltaY * 0.2);
+      }
     } else {
-      // Resistance when pulling up
-      currentDragDelta.current = deltaY * 0.2;
-      setSheetDragY(deltaY * 0.2);
+      // Peek mode: dragging up moves it up
+      if (deltaY < 0) {
+        setSheetDragY(deltaY);
+      } else {
+        setSheetDragY(deltaY * 0.2);
+      }
     }
   };
 
@@ -220,9 +230,13 @@ export default function App() {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {}
 
-    // If dragged downward by more than 40px, dismiss sheet
-    if (delta > 40) {
-      setIsMobileSheetOpen(false);
+    // When expanded, dragging downward by > 35px collapses to peek
+    if (sheetState === 'expanded' && delta > 35) {
+      setSheetState('peek');
+    } 
+    // When peek, dragging upward by > 25px expands sheet
+    else if (sheetState === 'peek' && delta < -25) {
+      setSheetState('expanded');
     }
     setSheetDragY(0);
   };
@@ -238,11 +252,12 @@ export default function App() {
   };
 
   const handleSelectMobileTab = (tab: TabType) => {
-    if (isMobileSheetOpen && mobileActiveTab === tab) {
-      setIsMobileSheetOpen(false);
+    if (sheetState === 'expanded' && mobileActiveTab === tab) {
+      // Tapping the active tab again collapses to peek mode
+      setSheetState('peek');
     } else {
       setMobileActiveTab(tab);
-      setIsMobileSheetOpen(true);
+      setSheetState('expanded');
     }
   };
 
@@ -268,13 +283,14 @@ export default function App() {
       {/* Main Workspace Layout */}
       <main className="flex-1 flex flex-col lg:flex-row overflow-hidden max-w-7xl w-full mx-auto relative">
         {/* Left / Center: Interactive Preview Canvas */}
-        <section className={`flex-1 flex flex-col items-center justify-center p-1 sm:p-4 bg-slate-100/50 dark:bg-slate-950/40 relative ${isMobileSheetOpen ? 'pb-64 lg:pb-4' : 'pb-24 lg:pb-4'}`}>
+        <section className={`flex-1 flex flex-col items-center justify-center p-1 sm:p-4 bg-slate-100/50 dark:bg-slate-950/40 relative ${sheetState === 'expanded' ? 'pb-64 lg:pb-4' : 'pb-36 lg:pb-4'}`}>
           <PreviewCanvas
             image={image}
             track={track}
             config={config}
             onChangeAspectRatio={handleChangeAspectRatio}
             onUpdatePositions={handleUpdatePositions}
+            onUpdateConfig={handleUpdateConfig}
           />
         </section>
 
@@ -294,53 +310,65 @@ export default function App() {
 
         {/* Mobile Interactive Bottom Sheet & Navigation Bar */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex flex-col">
-          {/* Collapsible Panel Content */}
-          {isMobileSheetOpen && (
+          {/* Collapsible Panel Content: Expanded (max-h-[52vh]) or Peek (partially visible, max-h-[115px]) */}
+          <div 
+            style={{
+              transform: `translateY(${sheetDragY}px)`,
+              transition: isDraggingSheet ? 'none' : 'max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            className={`bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl flex flex-col overflow-hidden transition-all duration-300 ${
+              sheetState === 'expanded' ? 'max-h-[52vh]' : 'max-h-[115px]'
+            }`}
+          >
+            {/* Sheet Drag Handle Bar with smooth pointer drag */}
             <div 
-              style={{
-                transform: `translateY(${sheetDragY}px)`,
-                transition: isDraggingSheet ? 'none' : 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
+              onPointerDown={handleSheetPointerDown}
+              onPointerMove={handleSheetPointerMove}
+              onPointerUp={handleSheetPointerUp}
+              onPointerCancel={handleSheetPointerCancel}
+              onClick={() => {
+                if (Math.abs(currentDragDelta.current) < 5) {
+                  setSheetState((prev) => (prev === 'expanded' ? 'peek' : 'expanded'));
+                }
               }}
-              className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl max-h-[54vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200"
+              style={{ touchAction: 'none' }}
+              className="w-full py-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40 select-none touch-none hover:bg-slate-100 dark:hover:bg-slate-800/40 active:bg-slate-100 dark:active:bg-slate-800 transition-colors"
             >
-              {/* Sheet Drag Handle Bar with smooth pointer drag down */}
-              <div 
-                onPointerDown={handleSheetPointerDown}
-                onPointerMove={handleSheetPointerMove}
-                onPointerUp={handleSheetPointerUp}
-                onPointerCancel={handleSheetPointerCancel}
-                onClick={() => {
-                  if (Math.abs(currentDragDelta.current) < 5) {
-                    setIsMobileSheetOpen(false);
-                  }
-                }}
-                style={{ touchAction: 'none' }}
-                className="w-full py-2.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40 select-none touch-none hover:bg-slate-100 dark:hover:bg-slate-800/40 active:bg-slate-100 dark:active:bg-slate-800 transition-colors"
-              >
-                <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 mb-1" />
-                <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                  <span>Desliza hacia abajo o toca para ocultar</span>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </div>
-              </div>
-
-              {/* Controls inside sheet */}
-              <div className="flex-1 overflow-y-auto">
-                <ControlsPanel
-                  config={config}
-                  track={track}
-                  onUpdateConfig={handleUpdateConfig}
-                  onSelectSamplePhoto={loadPhotoFromUrl}
-                  onLoadPhoto={handleLoadPhoto}
-                  onLoadTrack={handleLoadTrack}
-                  onOpenGarminModal={() => setIsGarminModalOpen(true)}
-                  onLoadSample={handleLoadSample}
-                  activeTabOverride={mobileActiveTab}
-                  onChangeTab={setMobileActiveTab}
-                />
+              <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 mb-1" />
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                {sheetState === 'expanded' ? (
+                  <>
+                    <span>Desliza hacia abajo o toca para minimizar</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-orange-600 dark:text-orange-400 font-bold">
+                      Ajustes ({mobileNavTabs.find((t) => t.id === mobileActiveTab)?.label || 'Panel'})
+                    </span>
+                    <span>· Toca o desliza para abrir</span>
+                    <ChevronUp className="w-3.5 h-3.5 text-orange-500" />
+                  </>
+                )}
               </div>
             </div>
-          )}
+
+            {/* Controls inside sheet */}
+            <div className="flex-1 overflow-y-auto">
+              <ControlsPanel
+                config={config}
+                track={track}
+                onUpdateConfig={handleUpdateConfig}
+                onSelectSamplePhoto={loadPhotoFromUrl}
+                onLoadPhoto={handleLoadPhoto}
+                onLoadTrack={handleLoadTrack}
+                onOpenGarminModal={() => setIsGarminModalOpen(true)}
+                onLoadSample={handleLoadSample}
+                activeTabOverride={mobileActiveTab}
+                onChangeTab={setMobileActiveTab}
+              />
+            </div>
+          </div>
 
           {/* Bottom Navigation Bar - Elevated with safe area to never collide with Android system buttons */}
           <nav 
@@ -348,7 +376,7 @@ export default function App() {
             className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-1 pt-1.5 grid grid-cols-5 gap-0.5 shadow-2xl select-none"
           >
             {mobileNavTabs.map((tab) => {
-              const isActive = isMobileSheetOpen && mobileActiveTab === tab.id;
+              const isActive = mobileActiveTab === tab.id;
               return (
                 <button
                   key={tab.id}
