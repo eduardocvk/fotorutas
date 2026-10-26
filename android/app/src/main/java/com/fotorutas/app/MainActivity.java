@@ -277,6 +277,79 @@ public class MainActivity extends BridgeActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
+        // Native JS interface to receive GPX from in-page scripts
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void onGpxCaptured(String gpxData) {
+                if (gpxData != null && (gpxData.contains("<gpx") || gpxData.contains("<?xml"))) {
+                    byte[] bytes = gpxData.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                    dispatchTrackData(base64, "garmin_" + activityId + ".gpx");
+                    runOnUiThread(() -> {
+                        if (garminDialog != null && garminDialog.isShowing()) {
+                            garminDialog.dismiss();
+                        }
+                    });
+                }
+            }
+        }, "GarminNativeCapture");
+
+        final String jsInjectScript = "(function() {" +
+                "  if (window._rutagramInjected) return;" +
+                "  window._rutagramInjected = true;" +
+                "  var actId = '" + activityId + "';" +
+                "  function tryFetchGpx() {" +
+                "    var token = null;" +
+                "    try {" +
+                "      var raw = localStorage.getItem('token');" +
+                "      if (raw) {" +
+                "        var p = JSON.parse(raw);" +
+                "        token = p.access_token || p.token || null;" +
+                "      }" +
+                "    } catch(e) {}" +
+                "    var headers = { 'DI-Backend': 'connectapi.garmin.com', 'Accept': 'application/gpx+xml,application/xml,*/*' };" +
+                "    if (token) { headers['Authorization'] = 'Bearer ' + token; }" +
+                "    var urls = [" +
+                "      '/download-service/export/gpx/activity/' + actId," +
+                "      '/modern/proxy/download-service/export/gpx/activity/' + actId," +
+                "      'https://connect.garmin.com/download-service/export/gpx/activity/' + actId" +
+                "    ];" +
+                "    function fetchNext(i) {" +
+                "      if (i >= urls.length) {" +
+                "        window.location.href = '/download-service/export/gpx/activity/' + actId;" +
+                "        return;" +
+                "      }" +
+                "      fetch(urls[i], { method: 'GET', headers: headers, credentials: 'include' })" +
+                "        .then(function(res) { if (!res.ok) throw new Error(res.status); return res.text(); })" +
+                "        .then(function(txt) {" +
+                "          if (txt && (txt.indexOf('<gpx') !== -1 || txt.indexOf('<?xml') !== -1)) {" +
+                "            if (window.GarminNativeCapture) { window.GarminNativeCapture.onGpxCaptured(txt); }" +
+                "          } else {" +
+                "            fetchNext(i + 1);" +
+                "          }" +
+                "        })" +
+                "        .catch(function() { fetchNext(i + 1); });" +
+                "    }" +
+                "    fetchNext(0);" +
+                "  }" +
+                "  tryFetchGpx();" +
+                "  setTimeout(tryFetchGpx, 1500);" +
+                "  try {" +
+                "    if (!document.getElementById('rutagram-btn')) {" +
+                "      var bar = document.createElement('div');" +
+                "      bar.id = 'rutagram-btn';" +
+                "      bar.style.cssText = 'position:fixed;top:12px;left:12px;right:12px;z-index:999999;background:linear-gradient(135deg,#FF5500,#F59E0B);color:#fff;padding:12px 16px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:sans-serif;font-weight:bold;font-size:13px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;';" +
+                "      bar.innerHTML = '<span>⚡ Importar esta ruta en Rutagram</span><span style=\"background:#fff;color:#000;font-size:11px;font-weight:800;padding:5px 10px;border-radius:8px;\">DESCARGAR</span>';" +
+                "      bar.onclick = function() {" +
+                "        bar.innerHTML = '<span>⏳ Descargando GPX...</span>';" +
+                "        tryFetchGpx();" +
+                "        setTimeout(function() { window.location.href = '/download-service/export/gpx/activity/' + actId; }, 1000);" +
+                "      };" +
+                "      document.body.appendChild(bar);" +
+                "    }" +
+                "  } catch(e) {}" +
+                "})();";
+
         webView.setWebViewClient(new WebViewClient() {
             private boolean captured = false;
 
@@ -285,21 +358,14 @@ public class MainActivity extends BridgeActivity {
                 super.onPageFinished(view, url);
                 if (captured) return;
 
-                String currentCookies = CookieManager.getInstance().getCookie("https://connect.garmin.com");
-
-                // If loaded activity or modern portal with cookies, try direct download
-                if (url.contains("/activity/") || url.contains("/modern/") || url.contains("signin")) {
-                    new Thread(() -> {
-                        boolean ok = tryDirectGarminDownload(activityId, currentCookies);
-                        if (ok) {
-                            captured = true;
-                            runOnUiThread(() -> {
-                                if (garminDialog != null && garminDialog.isShowing()) {
-                                    garminDialog.dismiss();
-                                }
-                            });
+                // If on activity page or modern portal, execute script injection
+                if (url.contains("/activity/") || url.contains("/modern/")) {
+                    view.evaluateJavascript(jsInjectScript, null);
+                    view.postDelayed(() -> {
+                        if (!captured) {
+                            view.evaluateJavascript(jsInjectScript, null);
                         }
-                    }).start();
+                    }, 1500);
                 }
             }
         });

@@ -402,14 +402,14 @@ export function renderComposition({
       const maxPanX = image.naturalWidth - sw;
       // Normal center is maxPanX / 2. Offset ranges from -100 (left) to +100 (right)
       const offsetFactorX = Math.max(-1, Math.min(1, (config.photoOffsetX ?? 0) / 100));
-      sx = (maxPanX / 2) + (offsetFactorX * (maxPanX / 2));
+      sx = (maxPanX / 2) - (offsetFactorX * (maxPanX / 2));
       sx = Math.max(0, Math.min(maxPanX, sx));
     } else {
       sh = image.naturalWidth / canvasRatio;
       const maxPanY = image.naturalHeight - sh;
       // Normal center is maxPanY / 2. Offset ranges from -100 (top) to +100 (bottom)
       const offsetFactorY = Math.max(-1, Math.min(1, (config.photoOffsetY ?? 0) / 100));
-      sy = (maxPanY / 2) + (offsetFactorY * (maxPanY / 2));
+      sy = (maxPanY / 2) - (offsetFactorY * (maxPanY / 2));
       sy = Math.max(0, Math.min(maxPanY, sy));
     }
 

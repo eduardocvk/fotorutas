@@ -149,8 +149,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
         onChange={handleTrackFileChange}
       />
 
-      {/* Tab Navigation - Grid 5 columns: 100% visible without horizontal scrolling */}
-      <div className="grid grid-cols-5 gap-0.5 sm:gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0 select-none">
+      {/* Tab Navigation - Grid 5 columns: Only visible on desktop sidebar (on mobile the bottom nav is used) */}
+      <div className="hidden lg:grid grid-cols-5 gap-0.5 sm:gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0 select-none">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
