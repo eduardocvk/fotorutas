@@ -259,11 +259,11 @@ export default function App() {
     }
     setIsExporting(true);
     try {
-      const cleanTitle = (config.title || 'fotoruta').toLowerCase().replace(/\s+/g, '-');
+      const cleanTitle = (config.title || 'rutagram').toLowerCase().replace(/\s+/g, '-');
       const filename = `${cleanTitle}-${config.aspectRatio.replace(':', 'x')}.png`;
       const result = await exportHighResImage(image, track, config, filename);
       if (result === 'gallery') {
-        showToast('success', '¡Imagen guardada en tu Galería de fotos (álbum Fotorutas)!');
+        showToast('success', '¡Imagen guardada en tu Galería de fotos (álbum Rutagram)!');
       } else if (result === 'shared') {
         showToast('success', '¡Imagen compartida con éxito!');
       } else if (result === 'downloaded') {

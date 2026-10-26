@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.fotorutas.app',
-  appName: 'Fotorutas',
+  appName: 'Rutagram',
   webDir: 'dist',
   bundledWebRuntime: false,
   server: {

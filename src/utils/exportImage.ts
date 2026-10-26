@@ -8,7 +8,7 @@ export async function exportHighResImage(
   image: HTMLImageElement | null,
   track: TrackStats | null,
   config: OverlayConfig,
-  fileName = 'fotoruta.png'
+  fileName = 'rutagram.png'
 ): Promise<ExportResult> {
   // Ultra HD high resolution: 1440px base width
   const baseWidth = 1440;
@@ -31,7 +31,7 @@ export async function exportHighResImage(
     exportScale: 1, // Normalized to full 1440px canvas
   });
 
-  // 1. Android Native App: Save directly to Android Gallery (MediaStore Pictures/Fotorutas)
+  // 1. Android Native App: Save directly to Android Gallery (MediaStore Pictures/Rutagram)
   const androidGallery = (window as any).AndroidGallery;
   if (androidGallery && typeof androidGallery.saveImageToGallery === 'function') {
     try {
@@ -63,7 +63,7 @@ export async function exportHighResImage(
     try {
       await navigator.share({
         files: [file],
-        title: config.title || 'Mi Fotoruta',
+        title: config.title || 'Mi Rutagram',
         text: `Ruta: ${config.title} - ${track?.distanceKm || 0} km, +${track?.elevationGainM || 0}m D+`,
       });
       triggerConfetti();

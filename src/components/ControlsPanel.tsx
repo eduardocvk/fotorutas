@@ -819,7 +819,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                   type="text"
                   value={config.watermarkText}
                   onChange={(e) => onUpdateConfig({ watermarkText: e.target.value })}
-                  placeholder="Fotorutas / Tu usuario de IG"
+                  placeholder="Rutagram / Tu usuario de IG"
                   className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
                 />
               )}

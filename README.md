@@ -1,4 +1,4 @@
-# Fotorutas 🚴⛰️📸
+# Rutagram 🚴⛰️📸
 
 Aplicación moderna para Android y Web que permite **sobreimpresionar tracks GPS (.fit y .gpx) sobre tus fotos** para crear publicaciones e historias atractivas en redes sociales (Instagram, TikTok, Strava, WhatsApp).
 

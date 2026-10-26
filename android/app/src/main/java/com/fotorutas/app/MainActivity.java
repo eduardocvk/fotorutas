@@ -256,7 +256,7 @@ public class MainActivity extends BridgeActivity {
 
         // Instruction Banner
         TextView banner = new TextView(this);
-        banner.setText("Inicia sesión en tu cuenta de Garmin. Al entrar, tu ruta se importará automáticamente en Fotorutas.");
+        banner.setText("Inicia sesión en tu cuenta de Garmin. Al entrar, tu ruta se importará automáticamente en Rutagram.");
         banner.setTextColor(0xFFF0FDF4);
         banner.setTextSize(12);
         banner.setPadding(32, 20, 32, 20);
@@ -376,7 +376,7 @@ public class MainActivity extends BridgeActivity {
                     ContentValues values = new ContentValues();
                     values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
                     values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
-                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Fotorutas");
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Rutagram");
                     values.put(MediaStore.Images.Media.IS_PENDING, 1);
 
                     Uri uri = context.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
@@ -394,7 +394,7 @@ public class MainActivity extends BridgeActivity {
                     }
                 } else {
                     File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-                    File appDir = new File(picturesDir, "Fotorutas");
+                    File appDir = new File(picturesDir, "Rutagram");
                     if (!appDir.exists()) {
                         appDir.mkdirs();
                     }
@@ -434,7 +434,7 @@ public class MainActivity extends BridgeActivity {
                     shareIntent.setDataAndType(contentUri, "image/png");
                     shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
                     shareIntent.putExtra(Intent.EXTRA_SUBJECT, title);
-                    context.startActivity(Intent.createChooser(shareIntent, "Compartir fotoruta"));
+                    context.startActivity(Intent.createChooser(shareIntent, "Compartir Rutagram"));
                     return true;
                 }
             } catch (Exception e) {
