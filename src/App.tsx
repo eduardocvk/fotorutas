@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { TrackStats, OverlayConfig, AspectRatioType, OverlayPositions } from './types';
 import { DEFAULT_CONFIG, SAMPLE_TRACK_COVADONGA, SAMPLE_PHOTOS } from './utils/sampleData';
 import { parseGPX, parseFIT } from './utils/trackParsers';
@@ -201,6 +201,35 @@ export default function App() {
     }
   };
 
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const touchStartY = useRef<number | null>(null);
+  const isDraggingSheet = useRef(false);
+
+  const handleSheetTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    touchStartY.current = clientY;
+    isDraggingSheet.current = true;
+  };
+
+  const handleSheetTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDraggingSheet.current || touchStartY.current === null) return;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const delta = clientY - touchStartY.current;
+    if (delta > 0) {
+      setSheetDragY(delta);
+    }
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (!isDraggingSheet.current) return;
+    isDraggingSheet.current = false;
+    touchStartY.current = null;
+    if (sheetDragY > 60) {
+      setIsMobileSheetOpen(false);
+    }
+    setSheetDragY(0);
+  };
+
   const handleSelectMobileTab = (tab: TabType) => {
     setMobileActiveTab(tab);
     setIsMobileSheetOpen(true);
@@ -223,7 +252,7 @@ export default function App() {
       {/* Main Workspace Layout */}
       <main className="flex-1 flex flex-col lg:flex-row overflow-hidden max-w-7xl w-full mx-auto relative">
         {/* Left / Center: Interactive Preview Canvas */}
-        <section className={`flex-1 flex flex-col items-center justify-center p-1 sm:p-4 bg-slate-100/50 dark:bg-slate-950/40 relative ${isMobileSheetOpen ? 'pb-52 lg:pb-4' : 'pb-16 lg:pb-4'}`}>
+        <section className={`flex-1 flex flex-col items-center justify-center p-1 sm:p-4 bg-slate-100/50 dark:bg-slate-950/40 relative ${isMobileSheetOpen ? 'pb-64 lg:pb-4' : 'pb-24 lg:pb-4'}`}>
           <PreviewCanvas
             image={image}
             track={track}
@@ -247,13 +276,26 @@ export default function App() {
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex flex-col">
           {/* Collapsible Panel Content */}
           {isMobileSheetOpen && (
-            <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl max-h-[50vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200">
-              {/* Sheet Handle */}
+            <div 
+              style={{
+                transform: `translateY(${sheetDragY}px)`,
+                transition: isDraggingSheet.current ? 'none' : 'transform 0.22s ease-out',
+              }}
+              className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl rounded-t-3xl max-h-[52vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200"
+            >
+              {/* Sheet Handle with Swipe Down support */}
               <div 
+                onTouchStart={handleSheetTouchStart}
+                onTouchMove={handleSheetTouchMove}
+                onTouchEnd={handleSheetTouchEnd}
+                onMouseDown={handleSheetTouchStart}
+                onMouseMove={handleSheetTouchMove}
+                onMouseUp={handleSheetTouchEnd}
                 onClick={() => setIsMobileSheetOpen(false)}
-                className="w-full py-2 flex items-center justify-center cursor-pointer border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40"
+                className="w-full py-2.5 flex flex-col items-center justify-center cursor-pointer border-b border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/40 select-none active:bg-slate-100 dark:active:bg-slate-800"
               >
-                <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 mb-1" />
+                <span className="text-[10px] text-slate-400 font-medium">Desliza hacia abajo para ocultar</span>
               </div>
 
               {/* Controls inside sheet */}
@@ -270,8 +312,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Bottom Navigation Bar */}
-          <nav className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shadow-lg">
+          {/* Bottom Navigation Bar - Elevated with safe area to never collide with Android system buttons */}
+          <nav className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-2 pt-2 pb-7 sm:pb-3 pb-android-safe flex items-center justify-around shadow-2xl">
             <button
               onClick={() => handleSelectMobileTab('templates')}
               className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl text-[10px] font-bold transition ${

@@ -57,3 +57,8 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* Safe area padding for Android system buttons and gesture pill */
+.pb-android-safe {
+  padding-bottom: max(2rem, env(safe-area-inset-bottom, 2rem));
+}
