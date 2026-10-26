@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import type { OverlayConfig, TemplateId, MetricType, TrackStats, MovableElementId, OverlayPositions } from '../types';
+import React, { useState, useRef } from 'react';
+import type { OverlayConfig, TemplateId, MetricType, TrackStats, OverlayPositions } from '../types';
 import { TEMPLATE_PRESETS, SAMPLE_PHOTOS, DEFAULT_POSITIONS_BY_TEMPLATE } from '../utils/sampleData';
 import {
   LayoutTemplate,
-  Sliders,
+  Camera,
   MapPin,
   BarChart3,
   Palette,
@@ -13,32 +13,40 @@ import {
   Compass,
   Check,
   Type,
-  Move,
   RotateCcw,
-  AlignCenter
+  FileCode2
 } from 'lucide-react';
+
+export type TabType = 'templates' | 'photo' | 'route' | 'metrics' | 'style';
 
 interface ControlsPanelProps {
   config: OverlayConfig;
   track: TrackStats | null;
   onUpdateConfig: (partial: Partial<OverlayConfig>) => void;
   onSelectSamplePhoto: (url: string) => void;
+  onLoadPhoto?: (file: File) => void;
+  onLoadTrack?: (file: File) => void;
+  onOpenGarminModal?: () => void;
+  onLoadSample?: () => void;
   activeTabOverride?: TabType;
   onChangeTab?: (tab: TabType) => void;
 }
-
-export type TabType = 'templates' | 'position' | 'photo' | 'route' | 'metrics' | 'style';
 
 export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   config,
   track,
   onUpdateConfig,
   onSelectSamplePhoto,
+  onLoadPhoto,
+  onLoadTrack,
+  onOpenGarminModal,
+  onLoadSample,
   activeTabOverride,
   onChangeTab,
 }) => {
   const [internalTab, setInternalTab] = useState<TabType>('templates');
-  const [selectedElementToMove, setSelectedElementToMove] = useState<MovableElementId>('title');
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const trackInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = activeTabOverride || internalTab;
   const setActiveTab = (tab: TabType) => {
@@ -47,12 +55,11 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
   };
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: 'templates', label: 'Plantillas', icon: <LayoutTemplate className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
-    { id: 'position', label: 'Posición', icon: <Move className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
-    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
-    { id: 'route', label: 'Ruta', icon: <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
-    { id: 'photo', label: 'Filtros', icon: <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
-    { id: 'style', label: 'Estilo', icon: <Palette className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> },
+    { id: 'templates', label: 'Plantillas', icon: <LayoutTemplate className="w-4 h-4" /> },
+    { id: 'photo', label: 'Foto', icon: <Camera className="w-4 h-4" /> },
+    { id: 'route', label: 'Ruta', icon: <MapPin className="w-4 h-4" /> },
+    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'style', label: 'Estilo', icon: <Palette className="w-4 h-4" /> },
   ];
 
   const handleApplyTemplate = (templateId: TemplateId) => {
@@ -76,25 +83,25 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     }
   };
 
-  const handleUpdateElementPosition = (
-    elementId: MovableElementId,
-    partial: { x?: number; y?: number; scale?: number }
-  ) => {
-    const current = config.positions[elementId] || { x: 50, y: 50, scale: 1.0 };
-    onUpdateConfig({
-      positions: {
-        ...config.positions,
-        [elementId]: {
-          ...current,
-          ...partial,
-        },
-      },
-    });
-  };
-
   const handleResetPositions = () => {
     const defaults: OverlayPositions = DEFAULT_POSITIONS_BY_TEMPLATE[config.template] || DEFAULT_POSITIONS_BY_TEMPLATE.sport;
     onUpdateConfig({ positions: defaults });
+  };
+
+  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onLoadPhoto) {
+      onLoadPhoto(file);
+      e.target.value = '';
+    }
+  };
+
+  const handleTrackFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onLoadTrack) {
+      onLoadTrack(file);
+      e.target.value = '';
+    }
   };
 
   const colorPalette = [
@@ -107,19 +114,33 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     { name: 'Ámbar Cálido', hex: '#F59E0B' },
   ];
 
-  const currentElementPos = config.positions[selectedElementToMove] || { x: 50, y: 50, scale: 1.0 };
-
   return (
     <div className="flex flex-col w-full h-full bg-white dark:bg-slate-900/80 backdrop-blur-xl border-l border-slate-200 dark:border-slate-800/80 overflow-hidden text-slate-800 dark:text-slate-100 transition-colors duration-200">
-      {/* Tab Navigation - Grid 6 columns: all visible without horizontal scrolling */}
-      <div className="grid grid-cols-6 gap-0.5 sm:gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0 select-none">
+      {/* Hidden file inputs */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handlePhotoFileChange}
+      />
+      <input
+        ref={trackInputRef}
+        type="file"
+        accept=".gpx,.fit"
+        className="hidden"
+        onChange={handleTrackFileChange}
+      />
+
+      {/* Tab Navigation - Grid 5 columns: 100% visible without horizontal scrolling */}
+      <div className="grid grid-cols-5 gap-0.5 sm:gap-1 p-1 sm:p-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/40 shrink-0 select-none">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[9.5px] sm:text-xs font-bold transition-all ${
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-0.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
                 isActive
                   ? 'bg-orange-500 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -134,7 +155,9 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
 
       {/* Tab Contents */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* TAB 1: PLANTILLAS */}
+        {/* ========================================================= */}
+        {/* 1. TAB: PLANTILLAS */}
+        {/* ========================================================= */}
         {activeTab === 'templates' && (
           <div className="space-y-4">
             <div>
@@ -168,7 +191,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                   Deportiva (Strava Pro)
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  HUD atlético de alto contraste, acentos en naranja neón, badges de datos destacados.
+                  HUD atlético de alto contraste, acentos en naranja neón y badges destacados.
                 </p>
               </button>
 
@@ -195,7 +218,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                   Minimalista Clean
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Líneas finas, tarjetas traslúcidas estilo cristal y estética sobria y moderna.
+                  Líneas finas, tarjetas traslúcidas estilo cristal y estética sobria.
                 </p>
               </button>
 
@@ -222,7 +245,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                   Póster Aventura
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Estilo revista y marco cinematográfico, tipografía con serifa y aire de expedición.
+                  Estilo revista y marco cinematográfico, tipografía editorial y aire de expedición.
                 </p>
               </button>
 
@@ -256,271 +279,199 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 2: POSICIÓN & ESCALA MANUAL */}
-        {activeTab === 'position' && (
+        {/* ========================================================= */}
+        {/* 2. TAB: FOTO & FILTROS (Unificados según petición) */}
+        {/* ========================================================= */}
+        {activeTab === 'photo' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Colocación & Escala</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Coloca y redimensiona cada elemento libremente.
-                </p>
-              </div>
-              <button
-                onClick={handleResetPositions}
-                title="Restablecer posiciones"
-                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
-              >
-                <RotateCcw className="w-4 h-4 text-orange-500" />
-              </button>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Fotografía y Filtros</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Elige la foto de fondo y ajusta el brillo, contraste y viñeta para máxima legibilidad.
+              </p>
             </div>
 
-            {/* Element Picker */}
+            {/* Primary Button: Load Photo from device/camera */}
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              className="w-full p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 hover:from-orange-500/20 hover:via-amber-500/20 border-2 border-dashed border-orange-500/40 hover:border-orange-500 flex flex-col items-center justify-center gap-2 transition group shadow-sm active:scale-[0.99]"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition duration-200">
+                <Camera className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <span className="text-sm font-bold text-slate-900 dark:text-white block group-hover:text-orange-500 transition">
+                  Elegir foto de tu galería o cámara
+                </span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Toca aquí para seleccionar una imagen (JPG, PNG, HEIC)
+                </span>
+              </div>
+            </button>
+
+            {/* Photo Filters */}
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-                Selecciona elemento a mover:
+                Filtro Visual de Color
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'title', label: 'Título y Fecha' },
-                  { id: 'track', label: 'Trazado del Track' },
-                  { id: 'stats', label: 'Tarjeta de Datos' },
-                  { id: 'profile', label: 'Perfil Altimetría' },
-                ].map((elem) => (
+                  { id: 'none', label: 'Normal' },
+                  { id: 'contrast', label: 'Contraste' },
+                  { id: 'cinematic', label: 'Cine' },
+                  { id: 'vibrant', label: 'Vívido' },
+                  { id: 'blackwhite', label: 'B & N' },
+                  { id: 'warm', label: 'Cálido' },
+                ].map((f) => (
                   <button
-                    key={elem.id}
-                    onClick={() => setSelectedElementToMove(elem.id as MovableElementId)}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-bold border text-center transition ${
-                      selectedElementToMove === elem.id
-                        ? 'border-orange-500 bg-orange-500/15 text-orange-600 dark:text-orange-400'
-                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-300'
+                    key={f.id}
+                    onClick={() => onUpdateConfig({ photoFilter: f.id as any })}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-medium border text-center transition ${
+                      config.photoFilter === f.id
+                        ? 'border-orange-500 bg-orange-500/15 text-orange-600 dark:text-orange-400 font-bold'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    {elem.label}
+                    {f.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Fine Position Sliders */}
-            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3.5">
+            {/* Sliders: Brightness, Contrast & Vignette */}
+            <div className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">Posición Horizontal (X)</span>
-                  <span className="text-orange-500 font-mono font-bold">{currentElementPos.x}%</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-medium">Brillo de Fondo</span>
+                  <span className="text-slate-500 dark:text-slate-400">{config.photoBrightness}%</span>
                 </div>
                 <input
                   type="range"
-                  min="5"
-                  max="95"
-                  value={currentElementPos.x}
-                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { x: Number(e.target.value) })}
+                  min="-40"
+                  max="40"
+                  value={config.photoBrightness}
+                  onChange={(e) => onUpdateConfig({ photoBrightness: Number(e.target.value) })}
                   className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
 
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">Posición Vertical (Y)</span>
-                  <span className="text-orange-500 font-mono font-bold">{currentElementPos.y}%</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-medium">Contraste</span>
+                  <span className="text-slate-500 dark:text-slate-400">{config.photoContrast}%</span>
                 </div>
                 <input
                   type="range"
-                  min="5"
-                  max="95"
-                  value={currentElementPos.y}
-                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { y: Number(e.target.value) })}
+                  min="-30"
+                  max="50"
+                  value={config.photoContrast}
+                  onChange={(e) => onUpdateConfig({ photoContrast: Number(e.target.value) })}
                   className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
 
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">Tamaño / Escala</span>
-                  <span className="text-orange-500 font-mono font-bold">{Math.round((currentElementPos.scale || 1.0) * 100)}%</span>
+              <div className="flex items-center justify-between pt-1">
+                <div>
+                  <span className="text-xs text-slate-700 dark:text-slate-300 font-medium block">
+                    Viñeta Oscura (Mayor Legibilidad)
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                    Oscurece los bordes para resaltar el trazado y los datos
+                  </span>
                 </div>
-                <input
-                  type="range"
-                  min="50"
-                  max="220"
-                  value={Math.round((currentElementPos.scale || 1.0) * 100)}
-                  onChange={(e) => handleUpdateElementPosition(selectedElementToMove, { scale: Number(e.target.value) / 100 })}
-                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-
-              <div className="pt-1 flex gap-2">
-                <button
-                  onClick={() => handleUpdateElementPosition(selectedElementToMove, { x: 50 })}
-                  className="flex-1 py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition"
-                >
-                  <AlignCenter className="w-3.5 h-3.5 text-orange-500" />
-                  <span>Centrar Horizontalmente</span>
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-              💡 También puedes arrastrar con 1 dedo y <strong>hacer zoom con 2 dedos (pellizco)</strong> directamente sobre la imagen.
-            </p>
-          </div>
-        )}
-
-        {/* TAB 3: MÉTRICAS & TEXTO */}
-        {activeTab === 'metrics' && (
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Textos y Métricas</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Personaliza el título y ajusta el tamaño de letra para máxima visibilidad.
-              </p>
-            </div>
-
-            {/* Typography Scaler Sliders */}
-            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-800 dark:text-slate-200 font-bold">Tamaño del Título</span>
-                  <span className="text-orange-500 font-mono font-bold">{Math.round((config.titleScale || 1.25) * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="80"
-                  max="220"
-                  value={Math.round((config.titleScale || 1.25) * 100)}
-                  onChange={(e) => onUpdateConfig({ titleScale: Number(e.target.value) / 100 })}
-                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-800 dark:text-slate-200 font-bold">Tamaño de los Datos y Cifras</span>
-                  <span className="text-orange-500 font-mono font-bold">{Math.round((config.statsScale || 1.25) * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="80"
-                  max="220"
-                  value={Math.round((config.statsScale || 1.25) * 100)}
-                  onChange={(e) => onUpdateConfig({ statsScale: Number(e.target.value) / 100 })}
-                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-            </div>
-
-            {/* Title & Subtitle Inputs */}
-            <div className="space-y-2.5">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Título de la Ruta
-                </label>
-                <input
-                  type="text"
-                  value={config.title}
-                  onChange={(e) => onUpdateConfig({ title: e.target.value })}
-                  placeholder="Ej: Lagos de Covadonga"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Subtítulo / Ubicación
-                </label>
-                <input
-                  type="text"
-                  value={config.subtitle}
-                  onChange={(e) => onUpdateConfig({ subtitle: e.target.value })}
-                  placeholder="Ej: Picos de Europa, Asturias"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Fecha
-                </label>
-                <input
-                  type="text"
-                  value={config.dateText}
-                  onChange={(e) => onUpdateConfig({ dateText: e.target.value })}
-                  placeholder="Ej: 26 OCT 2026"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
-                />
-              </div>
-            </div>
-
-            {/* Metrics Checklist */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-                Métricas Visibles
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'distance', label: 'Distancia (km)' },
-                  { id: 'time', label: 'Tiempo (h/m)' },
-                  { id: 'gain', label: 'Desnivel + (m)' },
-                  { id: 'speed', label: 'Velocidad Media' },
-                  { id: 'max_alt', label: 'Altitud Máx' },
-                  { id: 'pace', label: 'Ritmo (/km)' },
-                ].map((m) => {
-                  const isChecked = config.metrics.includes(m.id as MetricType);
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => toggleMetric(m.id as MetricType)}
-                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-medium transition ${
-                        isChecked
-                          ? 'border-orange-500 bg-orange-500/10 text-orange-600 dark:text-white font-bold'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      <span>{m.label}</span>
-                      {isChecked && <Check className="w-3.5 h-3.5 text-orange-500" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Watermark Branding */}
-            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Marca de Agua / Firma</span>
                 <input
                   type="checkbox"
-                  checked={config.showWatermark}
-                  onChange={(e) => onUpdateConfig({ showWatermark: e.target.checked })}
+                  checked={config.photoVignette}
+                  onChange={(e) => onUpdateConfig({ photoVignette: e.target.checked })}
                   className="w-4 h-4 rounded text-orange-500 accent-orange-500 cursor-pointer"
                 />
               </div>
-              {config.showWatermark && (
-                <input
-                  type="text"
-                  value={config.watermarkText}
-                  onChange={(e) => onUpdateConfig({ watermarkText: e.target.value })}
-                  placeholder="Fotorutas / Tu usuario de IG"
-                  className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
-                />
-              )}
+            </div>
+
+            {/* Sample Photos Gallery */}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+                O selecciona una foto de prueba:
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {SAMPLE_PHOTOS.map((sp) => (
+                  <button
+                    key={sp.id}
+                    onClick={() => onSelectSamplePhoto(sp.url)}
+                    className="relative group rounded-xl overflow-hidden aspect-[4/3] border border-slate-200 dark:border-slate-800 hover:border-orange-500 transition text-left"
+                  >
+                    <img
+                      src={sp.url}
+                      alt={sp.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-2">
+                      <span className="text-[11px] font-bold text-white drop-shadow">
+                        {sp.name}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* TAB 4: RUTA & PERFIL */}
+        {/* ========================================================= */}
+        {/* 3. TAB: RUTA (Cargar GPX/FIT, Garmin, Color, Trazo, Perfil) */}
+        {/* ========================================================= */}
         {activeTab === 'route' && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Track GPS y Perfil</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Ruta y Telemetría GPS</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Personaliza el color del trazado, grosor, resplandor y altimetría.
+                Carga tu archivo de ruta (.gpx o .fit), impórtalo desde Garmin o personaliza el trazado.
               </p>
             </div>
 
+            {/* Action Cards: Load GPX/FIT + Garmin Connect */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                onClick={() => trackInputRef.current?.click()}
+                className="p-3 rounded-2xl border border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20 flex items-center gap-2.5 transition text-left active:scale-[0.99]"
+              >
+                <div className="p-2.5 rounded-xl bg-orange-500 text-white shrink-0 shadow-md">
+                  <FileCode2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white block">Cargar archivo</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">.GPX o .FIT de tu móvil</span>
+                </div>
+              </button>
+
+              <button
+                onClick={onOpenGarminModal}
+                className="p-3 rounded-2xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 flex items-center gap-2.5 transition text-left active:scale-[0.99]"
+              >
+                <div className="p-2.5 rounded-xl bg-sky-500 text-white shrink-0 shadow-md">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white block">Garmin Connect</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Importar directamente</span>
+                </div>
+              </button>
+            </div>
+
+            {/* Sample Route Loader (if needed) */}
+            {onLoadSample && (
+              <button
+                onClick={onLoadSample}
+                className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.99]"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+                <span>Cargar ruta de muestra (Lagos de Covadonga · 64.8 km)</span>
+              </button>
+            )}
+
             {/* Track Info Telemetry Card */}
             {track && (
-              <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+              <div className="bg-slate-50 dark:bg-slate-950/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
                 <div>
                   <span className="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Telemetría Track</span>
                   <span className="font-extrabold text-slate-900 dark:text-white text-sm">{track.distanceKm} km · +{track.elevationGainM}m D+</span>
@@ -535,7 +486,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
             {/* Track Color Palette */}
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-                Color del Trazado
+                Color de la Línea de Ruta
               </label>
               <div className="flex flex-wrap gap-2 items-center">
                 {colorPalette.map((col) => (
@@ -659,124 +610,159 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
           </div>
         )}
 
-        {/* TAB 5: FOTO & FILTROS */}
-        {activeTab === 'photo' && (
+        {/* ========================================================= */}
+        {/* 4. TAB: MÉTRICAS (Títulos, Textos y Métricas a mostrar) */}
+        {/* ========================================================= */}
+        {activeTab === 'metrics' && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Ajustes de la Fotografía</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Métricas y Textos</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Mejora la legibilidad de la ruta aplicando filtros y contrastes a la imagen de fondo.
+                Personaliza el título de tu actividad y selecciona qué métricas deseas mostrar.
               </p>
             </div>
 
-            {/* Photo Filters */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-                Filtro Visual
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'none', label: 'Normal' },
-                  { id: 'contrast', label: 'Contraste' },
-                  { id: 'cinematic', label: 'Cine' },
-                  { id: 'vibrant', label: 'Vívido' },
-                  { id: 'blackwhite', label: 'B & N' },
-                  { id: 'warm', label: 'Cálido' },
-                ].map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => onUpdateConfig({ photoFilter: f.id as any })}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-medium border text-center transition ${
-                      config.photoFilter === f.id
-                        ? 'border-orange-500 bg-orange-500/15 text-orange-600 dark:text-orange-400 font-bold'
-                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+            {/* Typography Scaler Sliders */}
+            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-800 dark:text-slate-200 font-bold">Tamaño del Título</span>
+                  <span className="text-orange-500 font-mono font-bold">{Math.round((config.titleScale || 1.25) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="80"
+                  max="220"
+                  value={Math.round((config.titleScale || 1.25) * 100)}
+                  onChange={(e) => onUpdateConfig({ titleScale: Number(e.target.value) / 100 })}
+                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-800 dark:text-slate-200 font-bold">Tamaño de los Datos y Cifras</span>
+                  <span className="text-orange-500 font-mono font-bold">{Math.round((config.statsScale || 1.25) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="80"
+                  max="220"
+                  value={Math.round((config.statsScale || 1.25) * 100)}
+                  onChange={(e) => onUpdateConfig({ statsScale: Number(e.target.value) / 100 })}
+                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                />
               </div>
             </div>
 
-            {/* Sliders: Brightness & Contrast */}
-            <div className="space-y-3 bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+            {/* Title, Subtitle & Date Inputs */}
+            <div className="space-y-2.5">
               <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">Brillo de Fondo</span>
-                  <span className="text-slate-500 dark:text-slate-400">{config.photoBrightness}%</span>
-                </div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Título de la Ruta
+                </label>
                 <input
-                  type="range"
-                  min="-40"
-                  max="40"
-                  value={config.photoBrightness}
-                  onChange={(e) => onUpdateConfig({ photoBrightness: Number(e.target.value) })}
-                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                  type="text"
+                  value={config.title}
+                  onChange={(e) => onUpdateConfig({ title: e.target.value })}
+                  placeholder="Ej: Lagos de Covadonga"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 font-medium">Contraste</span>
-                  <span className="text-slate-500 dark:text-slate-400">{config.photoContrast}%</span>
-                </div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Subtítulo / Ubicación
+                </label>
                 <input
-                  type="range"
-                  min="-30"
-                  max="50"
-                  value={config.photoContrast}
-                  onChange={(e) => onUpdateConfig({ photoContrast: Number(e.target.value) })}
-                  className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+                  type="text"
+                  value={config.subtitle}
+                  onChange={(e) => onUpdateConfig({ subtitle: e.target.value })}
+                  placeholder="Ej: Picos de Europa, Asturias"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">Viñeta Oscura (Legibilidad)</span>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Fecha
+                </label>
+                <input
+                  type="text"
+                  value={config.dateText}
+                  onChange={(e) => onUpdateConfig({ dateText: e.target.value })}
+                  placeholder="Ej: 26 OCT 2026"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
+                />
+              </div>
+            </div>
+
+            {/* Metrics Checklist */}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+                Métricas Visibles en Pantalla
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'distance', label: 'Distancia (km)' },
+                  { id: 'time', label: 'Tiempo (h/m)' },
+                  { id: 'gain', label: 'Desnivel + (m)' },
+                  { id: 'speed', label: 'Velocidad Media' },
+                  { id: 'max_alt', label: 'Altitud Máx' },
+                  { id: 'pace', label: 'Ritmo (/km)' },
+                ].map((m) => {
+                  const isChecked = config.metrics.includes(m.id as MetricType);
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => toggleMetric(m.id as MetricType)}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-medium transition ${
+                        isChecked
+                          ? 'border-orange-500 bg-orange-500/10 text-orange-600 dark:text-white font-bold'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <span>{m.label}</span>
+                      {isChecked && <Check className="w-3.5 h-3.5 text-orange-500" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Watermark Branding */}
+            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Marca de Agua / Firma</span>
                 <input
                   type="checkbox"
-                  checked={config.photoVignette}
-                  onChange={(e) => onUpdateConfig({ photoVignette: e.target.checked })}
+                  checked={config.showWatermark}
+                  onChange={(e) => onUpdateConfig({ showWatermark: e.target.checked })}
                   className="w-4 h-4 rounded text-orange-500 accent-orange-500 cursor-pointer"
                 />
               </div>
-            </div>
-
-            {/* Sample Photos Gallery */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-                O elige una foto de muestra:
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {SAMPLE_PHOTOS.map((sp) => (
-                  <button
-                    key={sp.id}
-                    onClick={() => onSelectSamplePhoto(sp.url)}
-                    className="relative group rounded-xl overflow-hidden aspect-[4/3] border border-slate-200 dark:border-slate-800 hover:border-orange-500 transition text-left"
-                  >
-                    <img
-                      src={sp.url}
-                      alt={sp.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-2">
-                      <span className="text-[11px] font-bold text-white drop-shadow">
-                        {sp.name}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {config.showWatermark && (
+                <input
+                  type="text"
+                  value={config.watermarkText}
+                  onChange={(e) => onUpdateConfig({ watermarkText: e.target.value })}
+                  placeholder="Fotorutas / Tu usuario de IG"
+                  className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-orange-500 transition"
+                />
+              )}
             </div>
           </div>
         )}
 
-        {/* TAB 6: ESTILO & TIPOGRAFÍA */}
+        {/* ========================================================= */}
+        {/* 5. TAB: ESTILO (Fuentes, Opacidad y Restablecer) */}
+        {/* ========================================================= */}
         {activeTab === 'style' && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Tipografía y Acabado</h3>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Estilo y Tipografía</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Selecciona la tipografía y el nivel de opacidad de las tarjetas superpuestas.
+                Selecciona la tipografía, nivel de opacidad de las tarjetas y opciones de diseño.
               </p>
             </div>
 
@@ -826,6 +812,25 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                 onChange={(e) => onUpdateConfig({ cardOpacity: Number(e.target.value) })}
                 className="w-full accent-orange-500 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
               />
+            </div>
+
+            {/* Position Reset Card */}
+            <div className="bg-slate-50 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Colocación de Elementos
+                </span>
+                <button
+                  onClick={handleResetPositions}
+                  className="px-2.5 py-1.5 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Restablecer</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Recuerda que puedes mover cualquier texto o gráfico arrastrándolo con <strong>1 dedo</strong> y cambiar su tamaño pellizcando con <strong>2 dedos</strong> directamente sobre la foto. Pulsa "Restablecer" para devolverlos a la posición original de la plantilla.
+              </p>
             </div>
           </div>
         )}

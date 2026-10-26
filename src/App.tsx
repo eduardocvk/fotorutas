@@ -11,10 +11,9 @@ import {
   AlertCircle, 
   CheckCircle2, 
   LayoutTemplate, 
-  Move, 
+  Camera, 
   BarChart3, 
   MapPin, 
-  Sliders, 
   ChevronDown,
   Palette
 } from 'lucide-react';
@@ -31,45 +30,29 @@ export default function App() {
   const [mobileActiveTab, setMobileActiveTab] = useState<TabType>('templates');
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(true);
 
-  // Theme state: 'system' | 'dark' | 'light'
-  const [theme, setTheme] = useState<'system' | 'dark' | 'light'>(() => {
+  // Theme state: 'dark' | 'light' (immediate toggle)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('fotorutas-theme');
-    if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
-    return 'system';
+    if (saved === 'dark' || saved === 'light') return saved;
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
   });
 
   // Apply theme to document
   useEffect(() => {
-    const applyTheme = () => {
-      let isDark = false;
-      if (theme === 'system') {
-        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      } else {
-        isDark = theme === 'dark';
-      }
-
-      if (isDark) {
-        document.documentElement.classList.add('dark');
-        document.getElementById('theme-color-meta')?.setAttribute('content', '#080c14');
-      } else {
-        document.documentElement.classList.remove('dark');
-        document.getElementById('theme-color-meta')?.setAttribute('content', '#f8fafc');
-      }
-    };
-
-    applyTheme();
-
-    if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const listener = () => applyTheme();
-      mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.getElementById('theme-color-meta')?.setAttribute('content', '#080c14');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.getElementById('theme-color-meta')?.setAttribute('content', '#f8fafc');
     }
   }, [theme]);
 
   const handleToggleTheme = () => {
     setTheme((prev) => {
-      const next = prev === 'system' ? 'dark' : prev === 'dark' ? 'light' : 'system';
+      const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem('fotorutas-theme', next);
       return next;
     });
@@ -265,10 +248,9 @@ export default function App() {
 
   const mobileNavTabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'templates', label: 'Plantillas', icon: <LayoutTemplate className="w-4 h-4" /> },
-    { id: 'position', label: 'Posición', icon: <Move className="w-4 h-4" /> },
-    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'photo', label: 'Foto', icon: <Camera className="w-4 h-4" /> },
     { id: 'route', label: 'Ruta', icon: <MapPin className="w-4 h-4" /> },
-    { id: 'photo', label: 'Filtros', icon: <Sliders className="w-4 h-4" /> },
+    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'style', label: 'Estilo', icon: <Palette className="w-4 h-4" /> },
   ];
 
@@ -276,10 +258,7 @@ export default function App() {
     <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 selection:bg-orange-500 selection:text-white transition-colors duration-200">
       {/* Top Header */}
       <Header
-        onLoadTrack={handleLoadTrack}
-        onLoadPhoto={handleLoadPhoto}
         onLoadSample={handleLoadSample}
-        onOpenGarminModal={() => setIsGarminModalOpen(true)}
         onExport={handleExport}
         isExporting={isExporting}
         theme={theme}
@@ -306,6 +285,10 @@ export default function App() {
             track={track}
             onUpdateConfig={handleUpdateConfig}
             onSelectSamplePhoto={loadPhotoFromUrl}
+            onLoadPhoto={handleLoadPhoto}
+            onLoadTrack={handleLoadTrack}
+            onOpenGarminModal={() => setIsGarminModalOpen(true)}
+            onLoadSample={handleLoadSample}
           />
         </aside>
 
@@ -348,6 +331,10 @@ export default function App() {
                   track={track}
                   onUpdateConfig={handleUpdateConfig}
                   onSelectSamplePhoto={loadPhotoFromUrl}
+                  onLoadPhoto={handleLoadPhoto}
+                  onLoadTrack={handleLoadTrack}
+                  onOpenGarminModal={() => setIsGarminModalOpen(true)}
+                  onLoadSample={handleLoadSample}
                   activeTabOverride={mobileActiveTab}
                   onChangeTab={setMobileActiveTab}
                 />
@@ -358,7 +345,7 @@ export default function App() {
           {/* Bottom Navigation Bar - Elevated with safe area to never collide with Android system buttons */}
           <nav 
             style={{ paddingBottom: 'max(0.75rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))' }}
-            className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-1 pt-1.5 grid grid-cols-6 gap-0.5 shadow-2xl select-none"
+            className="w-full bg-white/95 dark:bg-slate-950/95 border-t border-slate-200 dark:border-slate-800/80 backdrop-blur-md px-1 pt-1.5 grid grid-cols-5 gap-0.5 shadow-2xl select-none"
           >
             {mobileNavTabs.map((tab) => {
               const isActive = isMobileSheetOpen && mobileActiveTab === tab.id;
@@ -366,7 +353,7 @@ export default function App() {
                 <button
                   key={tab.id}
                   onClick={() => handleSelectMobileTab(tab.id)}
-                  className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[9.5px] sm:text-[10px] font-bold transition-all ${
+                  className={`flex flex-col items-center justify-center gap-0.5 py-1 px-0.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
                     isActive
                       ? 'text-orange-500 bg-orange-500/10'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
