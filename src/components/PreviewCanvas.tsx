@@ -10,7 +10,8 @@ import {
   RotateCcw,
   Move,
   Plus,
-  Minus
+  Minus,
+  Maximize2
 } from 'lucide-react';
 
 interface PreviewCanvasProps {
@@ -33,8 +34,15 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
   const [activeElement, setActiveElement] = useState<MovableElementId | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPinching, setIsPinching] = useState(false);
+  const [pinchScaleDisplay, setPinchScaleDisplay] = useState<number | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
+
+  // Multi-touch tracking
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartDistance = useRef<number | null>(null);
+  const initialScaleOnPinch = useRef<number>(1.0);
 
   // Update canvas & calculate bounding boxes
   useEffect(() => {
@@ -67,80 +75,131 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   }, [image, track, config]);
 
   // Convert client pointer coordinates to canvas coordinates
-  const getCanvasCoords = useCallback((e: React.PointerEvent) => {
+  const getCanvasCoords = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
     };
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    const { x, y } = getCanvasCoords(e);
+    // Register active pointer
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // Hit-test bounding boxes in reverse (top-most elements first)
-    for (let i = boundingBoxes.length - 1; i >= 0; i--) {
-      const b = boundingBoxes[i];
-      if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
-        setActiveElement(b.id);
-        setIsDragging(true);
-        const currentPos = config.positions[b.id] || { x: 50, y: 50, scale: 1 };
-        setDragStart({
-          x: e.clientX,
-          y: e.clientY,
-          originX: currentPos.x,
-          originY: currentPos.y,
-        });
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-        return;
-      }
+    // Multi-touch (2 fingers) -> Initialize Pinch to Scale
+    if (activePointers.current.size === 2) {
+      const pts = Array.from(activePointers.current.values());
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      pinchStartDistance.current = dist;
+
+      // Target element to scale: current activeElement, or default to 'track' or 'title'
+      const target = activeElement || 'track';
+      setActiveElement(target);
+      initialScaleOnPinch.current = config.positions[target]?.scale || 1.0;
+      setIsPinching(true);
+      setIsDragging(false);
+      return;
     }
 
-    // Clicked empty area
-    setActiveElement(null);
+    // Single touch (1 finger) -> Hit-test for drag
+    if (activePointers.current.size === 1) {
+      const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+
+      for (let i = boundingBoxes.length - 1; i >= 0; i--) {
+        const b = boundingBoxes[i];
+        if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+          setActiveElement(b.id);
+          setIsDragging(true);
+          const currentPos = config.positions[b.id] || { x: 50, y: 50, scale: 1 };
+          setDragStart({
+            x: e.clientX,
+            y: e.clientY,
+            originX: currentPos.x,
+            originY: currentPos.y,
+          });
+          try {
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          } catch (err) {}
+          return;
+        }
+      }
+
+      // Tapped background
+      setActiveElement(null);
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || !activeElement || !dragStart || !canvasRef.current) return;
+    if (!activePointers.current.has(e.pointerId)) return;
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
+    // 1. Handle Two-Finger Pinch-to-Scale
+    if (activePointers.current.size >= 2 && pinchStartDistance.current && activeElement) {
+      const pts = Array.from(activePointers.current.values());
+      const currentDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const ratio = currentDist / pinchStartDistance.current;
 
-    const deltaX = ((e.clientX - dragStart.x) / rect.width) * 100;
-    const deltaY = ((e.clientY - dragStart.y) / rect.height) * 100;
+      const newScale = Number(Math.max(0.5, Math.min(2.5, initialScaleOnPinch.current * ratio)).toFixed(2));
+      setPinchScaleDisplay(Math.round(newScale * 100));
 
-    const newX = Math.round(Math.max(5, Math.min(95, dragStart.originX + deltaX)));
-    const newY = Math.round(Math.max(5, Math.min(95, dragStart.originY + deltaY)));
+      onUpdatePositions({
+        ...config.positions,
+        [activeElement]: {
+          ...config.positions[activeElement],
+          scale: newScale,
+        },
+      });
+      return;
+    }
 
-    onUpdatePositions({
-      ...config.positions,
-      [activeElement]: {
-        ...config.positions[activeElement],
-        x: newX,
-        y: newY,
-      },
-    });
+    // 2. Handle Single-Finger Drag
+    if (isDragging && activeElement && dragStart && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+
+      const deltaX = ((e.clientX - dragStart.x) / rect.width) * 100;
+      const deltaY = ((e.clientY - dragStart.y) / rect.height) * 100;
+
+      const newX = Math.round(Math.max(5, Math.min(95, dragStart.originX + deltaX)));
+      const newY = Math.round(Math.max(5, Math.min(95, dragStart.originY + deltaY)));
+
+      onUpdatePositions({
+        ...config.positions,
+        [activeElement]: {
+          ...config.positions[activeElement],
+          x: newX,
+          y: newY,
+        },
+      });
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (isDragging) {
+    activePointers.current.delete(e.pointerId);
+
+    if (activePointers.current.size < 2) {
+      setIsPinching(false);
+      pinchStartDistance.current = null;
+      setTimeout(() => setPinchScaleDisplay(null), 1000);
+    }
+
+    if (activePointers.current.size === 0) {
       setIsDragging(false);
       setDragStart(null);
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch (err) {
-        // ignore
-      }
+      } catch (err) {}
     }
   };
 
   const handleScaleElement = (id: MovableElementId, delta: number) => {
     const current = config.positions[id] || { x: 50, y: 50, scale: 1.0 };
-    const newScale = Number(Math.max(0.6, Math.min(2.5, current.scale + delta)).toFixed(2));
+    const newScale = Number(Math.max(0.5, Math.min(2.5, current.scale + delta)).toFixed(2));
     onUpdatePositions({
       ...config.positions,
       [id]: {
@@ -166,20 +225,20 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   ];
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full p-2 select-none">
-      {/* Top Bar: Aspect Ratio + Reset Positions */}
-      <div className="flex items-center justify-between w-full max-w-xl gap-2 mb-2">
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-slate-800/80 backdrop-blur-md shadow-lg">
+    <div className="flex flex-col items-center justify-center w-full h-full p-1 sm:p-2 select-none">
+      {/* Top Bar: Quick Aspect Ratio Chips + Reset */}
+      <div className="flex items-center justify-between w-full max-w-xl gap-2 mb-2 px-1">
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 backdrop-blur-md shadow-sm">
           {ratios.map((r) => {
             const isActive = config.aspectRatio === r.id;
             return (
               <button
                 key={r.id}
                 onClick={() => onChangeAspectRatio(r.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 {r.icon}
@@ -193,30 +252,31 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         <button
           onClick={handleResetPositions}
           title="Restablecer posición de elementos a la plantilla original"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-semibold backdrop-blur-md shadow-lg transition active:scale-95"
+          className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold backdrop-blur-md shadow-sm transition active:scale-95"
         >
-          <RotateCcw className="w-3.5 h-3.5 text-orange-400" />
+          <RotateCcw className="w-3.5 h-3.5 text-orange-500" />
           <span className="hidden sm:inline">Restablecer</span>
         </button>
       </div>
 
-      {/* Main Canvas Viewport with Interactive Drag Layer */}
+      {/* Main Canvas Viewport with Touch Gestures */}
       <div
         ref={containerRef}
-        className="relative flex items-center justify-center max-w-full max-h-[75vh] rounded-2xl overflow-hidden shadow-2xl shadow-black/80 border border-slate-800/80 bg-slate-950/50 cursor-crosshair touch-none"
+        className="relative flex items-center justify-center max-w-full max-h-[60vh] sm:max-h-[72vh] rounded-2xl overflow-hidden shadow-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100 dark:bg-slate-950/60 touch-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         <canvas
           ref={canvasRef}
-          className="max-h-[74vh] max-w-full w-auto object-contain block rounded-2xl pointer-events-none"
+          className="max-h-[58vh] sm:max-h-[70vh] max-w-full w-auto object-contain block rounded-2xl pointer-events-none"
         />
 
         {/* Visual Box Indicator for Selected/Active Element */}
         {activeBox && canvasRef.current && (
           <div
-            className="absolute pointer-events-none border-2 border-dashed border-orange-400 rounded-xl transition-all shadow-lg shadow-orange-500/20"
+            className="absolute pointer-events-none border-2 border-dashed border-orange-500 rounded-xl transition-all shadow-md shadow-orange-500/20"
             style={{
               left: `${(activeBox.x / canvasRef.current.width) * 100}%`,
               top: `${(activeBox.y / canvasRef.current.height) * 100}%`,
@@ -225,33 +285,43 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             }}
           >
             {/* Element Label Badge */}
-            <div className="absolute -top-7 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-orange-500 text-white text-[10px] font-bold shadow-md">
+            <div className="absolute -top-7 left-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500 text-white text-[10px] font-bold shadow-md">
               <Move className="w-3 h-3" />
-              <span>{activeBox.label} (Arrastra)</span>
+              <span>{activeBox.label}</span>
             </div>
           </div>
         )}
 
+        {/* Live Pinch Zoom HUD Badge (Shows when pinching with 2 fingers) */}
+        {pinchScaleDisplay !== null && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-white shadow-2xl animate-in zoom-in-75 duration-150">
+            <Maximize2 className="w-5 h-5 text-orange-400 animate-pulse" />
+            <span className="font-extrabold text-lg tracking-wider font-mono">
+              {pinchScaleDisplay}%
+            </span>
+          </div>
+        )}
+
         {/* Mini Floating Scale Toolbar for Active Element */}
-        {activeElement && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-xl bg-slate-900/95 border border-slate-700/80 backdrop-blur-md shadow-2xl z-20">
-            <span className="text-[11px] font-bold text-slate-300 pl-1.5">
+        {activeElement && !isPinching && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-1 rounded-xl bg-white/95 dark:bg-slate-900/95 border border-slate-300 dark:border-slate-700/80 backdrop-blur-md shadow-xl z-20">
+            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 pl-1">
               Tamaño:
             </span>
             <button
               onClick={() => handleScaleElement(activeElement, -0.1)}
-              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-              title="Reducir tamaño"
+              className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+              title="Reducir"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[11px] font-mono text-orange-400 font-bold min-w-8 text-center">
+            <span className="text-[11px] font-mono text-orange-500 font-bold min-w-8 text-center">
               {Math.round((config.positions[activeElement]?.scale || 1.0) * 100)}%
             </span>
             <button
               onClick={() => handleScaleElement(activeElement, 0.1)}
-              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-              title="Aumentar tamaño"
+              className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+              title="Aumentar"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -259,20 +329,20 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
         )}
 
         {/* Top-left Info Tags */}
-        <div className="absolute top-3 left-3 flex items-center gap-2 pointer-events-none">
-          <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-black/60 backdrop-blur-md text-slate-300 border border-white/10 uppercase tracking-wider">
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 pointer-events-none">
+          <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-black/60 backdrop-blur-md text-white border border-white/10 uppercase tracking-wider">
             {config.template.replace('_', ' ')}
           </span>
-          <span className="px-2 py-0.5 text-[10px] font-semibold rounded-md bg-black/60 backdrop-blur-md text-orange-400 border border-white/10">
+          <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded-md bg-black/60 backdrop-blur-md text-orange-400 border border-white/10">
             {config.aspectRatio}
           </span>
         </div>
       </div>
 
-      {/* Helpful Hint */}
-      <p className="text-[11px] text-slate-400 text-center mt-2 flex items-center justify-center gap-1.5">
-        <Move className="w-3 h-3 text-orange-400 inline" />
-        <span>Puedes <strong>tocar o arrastrar</strong> el título, track, métricas y perfil directamente en la foto.</span>
+      {/* Helpful Touch Hint */}
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center mt-1.5 flex items-center justify-center gap-1">
+        <Move className="w-3 h-3 text-orange-500 inline" />
+        <span><strong>1 dedo:</strong> mover. <strong>2 dedos (pellizco):</strong> redimensionar.</span>
       </p>
     </div>
   );
